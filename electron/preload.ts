@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   dialog: { showOpenDialog: (opts) => ipcRenderer.invoke('dialog:open', opts) },
   app: {
     getVersion: () => ipcRenderer.invoke('app:version'),
+    pastaJogo: () => ipcRenderer.invoke('app:pastaJogo'),
     atualizacao: () => ipcRenderer.invoke('app:atualizacao'),
   },
 

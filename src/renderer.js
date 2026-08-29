@@ -6,7 +6,7 @@
    ============================================================ */
 (function migrarChaves() {
   const CHAVES = ['theme', 'posts', 'editor', 'customTheme',
-                  'profile', 'members', 'skins', 'cape', 'notifs'];
+                  'profile', 'members', 'skins', 'cape', 'notifs', 'dir'];
   try {
     CHAVES.forEach(k => {
       const velha = 'owl.' + k, nova = 'xyven.' + k;
@@ -513,7 +513,7 @@ $('#javaList').addEventListener('click', (e) => {
   const b = e.target.closest('[data-java]'); if (!b) return;
   state.java = b.dataset.java; renderJava(); renderStats();
 });
-$('#dirInput').addEventListener('change', (e) => { state.dir = e.target.value; });
+$('#dirInput').addEventListener('change', (e) => { state.dir = e.target.value; salvarPasta(); carregarVersoes(); });
 $('#browseBtn').onclick = () => { /* AQUI: abrir o seletor de pasta do Electron/Tauri */ };
 $('#accountList').addEventListener('click', (e) => {
   /* criado por renderAccounts a cada desenho, entao nao da pra ligar direto */
@@ -887,6 +887,22 @@ $('#cancelBtn').onclick = () => {
 /* base -> versao modded instalada (ex.: '1.8.9' -> '1.8.9-forge...') */
 const moddedDe = {};
 
+/* a pasta do jogo tem que vir da maquina, nao do HTML: o valor fixo
+   apontava pro usuario da maquina onde o app foi compilado. */
+async function definirPastaJogo() {
+  let salva = null;
+  try { salva = localStorage.getItem('xyven.dir'); } catch (e) { /* sem storage */ }
+
+  if (!salva && temApi() && window.api.app && window.api.app.pastaJogo) {
+    try { salva = await window.api.app.pastaJogo(); } catch (e) { /* sem api */ }
+  }
+  if (!salva) return;                 /* navegador: deixa em branco */
+  state.dir = salva;
+  $('#dirInput').value = salva;
+}
+
+const salvarPasta = () => { try { localStorage.setItem('xyven.dir', state.dir || ''); } catch (e) { /* sem storage */ } };
+
 async function carregarVersoes() {
   if (!temApi() || !window.api.mc.instaladas) return;
   try {
@@ -933,12 +949,13 @@ $('#browseBtn').onclick = async () => {
   if (r && !r.canceled && r.filePaths && r.filePaths[0]) {
     state.dir = r.filePaths[0];
     $('#dirInput').value = state.dir;
+    salvarPasta();
+    carregarVersoes();
   }
 };
 
 /* boot (renderNews fica no boot do fórum — depende dos posts) */
-state.dir = $('#dirInput').value;
-carregarVersoes();
+definirPastaJogo().then(() => { carregarVersoes(); });
 renderStats(); renderVersions(); renderJava(); renderToggles(); renderAccounts(); renderMemory();
 carregarJava();
 

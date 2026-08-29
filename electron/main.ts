@@ -49,6 +49,8 @@ function createWindow() {
   /* ---------- diálogo de pasta e versão (o preload já expunha, faltava o handler) ---------- */
   ipcMain.handle('dialog:open', async (_e, opts) => dialog.showOpenDialog(win, opts || { properties: ['openDirectory'] }));
   ipcMain.handle('app:version', () => app.getVersion());
+  /* %APPDATA%\.minecraft da maquina atual — nunca um caminho fixo */
+  ipcMain.handle('app:pastaJogo', () => join(app.getPath('appData'), '.minecraft'));
 
   /* ---------- verificar atualização ----------
      compara a versão do app com a última Release do repositório. */
