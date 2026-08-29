@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('api', {
     pastaJogo: () => ipcRenderer.invoke('app:pastaJogo'),
     pastaExiste: (caminho: string) => ipcRenderer.invoke('app:pastaExiste', caminho),
     atualizacao: () => ipcRenderer.invoke('app:atualizacao'),
+    autostart: (ligar: boolean) => ipcRenderer.invoke('app:autostart', ligar),
+    autostartEstado: () => ipcRenderer.invoke('app:autostartEstado'),
   },
 
   auth: {

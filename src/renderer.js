@@ -6,7 +6,8 @@
    ============================================================ */
 (function migrarChaves() {
   const CHAVES = ['theme', 'posts', 'editor', 'customTheme',
-                  'profile', 'members', 'skins', 'cape', 'notifs', 'dir'];
+                  'profile', 'members', 'skins', 'cape', 'notifs', 'dir',
+                  'toggles'];
   try {
     CHAVES.forEach(k => {
       const velha = 'owl.' + k, nova = 'xyven.' + k;
@@ -39,7 +40,6 @@ const CONFIG = {
     launcher: [
       { key: 'theme',     on: false, label: 'Modo escuro', desc: 'mesmo tema, com a luz apagada' },
       { key: 'close',     on: false, label: 'Fechar ao tocar', desc: 'o launcher sai de cena quando o jogo abre' },
-      { key: 'logs',      on: false, label: 'Console aberto',  desc: 'deixa os logs rolando em outra janela' },
       { key: 'autostart', on: false, label: 'Abrir com o PC',  desc: 'inicia junto com o Windows' }
     ],
     discord: [
@@ -221,6 +221,30 @@ function renderJava() {
       </button>
       ${javaAberto ? `<div class="jsel__lista">${opcoes}</div>` : ''}
     </div>`;
+}
+
+/* Os toggles viviam so na memoria: qualquer um que voce ligasse voltava
+   desligado no proximo boot. Agora o conjunto inteiro vai pra 'xyven.toggles'.
+   O tema e a excecao de proposito — ele ja tem a chave 'xyven.theme', que
+   continua sendo a fonte da verdade (restoreTheme roda depois e reafirma). */
+function salvarToggles() {
+  const mapa = {};
+  Object.keys(CONFIG.toggles).forEach((grupo) => {
+    CONFIG.toggles[grupo].forEach((t) => { mapa[grupo + '.' + t.key] = t.on; });
+  });
+  try { localStorage.setItem('xyven.toggles', JSON.stringify(mapa)); } catch (e) { /* sem storage */ }
+}
+
+function restaurarToggles() {
+  let mapa = null;
+  try { mapa = JSON.parse(localStorage.getItem('xyven.toggles') || 'null'); } catch (e) { /* json torto */ }
+  if (!mapa || typeof mapa !== 'object') return;
+  Object.keys(CONFIG.toggles).forEach((grupo) => {
+    CONFIG.toggles[grupo].forEach((t) => {
+      const v = mapa[grupo + '.' + t.key];
+      if (typeof v === 'boolean') t.on = v;
+    });
+  });
 }
 
 function renderToggles() {
@@ -567,7 +591,35 @@ $('#panel-toggles').addEventListener('click', (e) => {
   const item = list.find(t => t.key === b.dataset.toggle);
   item.on = !item.on; b.classList.toggle('is-on', item.on);
   if (item.key === 'theme') applyTheme(item.on);
+  if (item.key === 'autostart') aplicarAutostart(item.on, b);
+  salvarToggles();
 });
+
+/* O Windows e quem manda aqui. Se ele recusar, o botao volta atras em vez
+   de ficar aceso prometendo uma coisa que nao vai acontecer. */
+async function aplicarAutostart(ligar, botao) {
+  if (!temApi() || !window.api.app || !window.api.app.autostart) return;
+  let real = ligar;
+  try { real = await window.api.app.autostart(ligar); } catch (e) { real = !ligar; }
+  if (real === ligar) return;
+  const item = CONFIG.toggles.launcher.find((t) => t.key === 'autostart');
+  if (item) item.on = real;
+  if (botao) botao.classList.toggle('is-on', real);
+  salvarToggles();
+}
+
+/* No boot, quem manda e o Windows, nao o que gravamos. Sem isto o toggle
+   mostraria o valor salvo mesmo que o item tivesse sido tirado por fora. */
+async function sincronizarAutostart() {
+  if (!temApi() || !window.api.app || !window.api.app.autostartEstado) return;
+  let real;
+  try { real = await window.api.app.autostartEstado(); } catch (e) { return; }
+  const item = CONFIG.toggles.launcher.find((t) => t.key === 'autostart');
+  if (!item || item.on === real) return;
+  item.on = real;
+  salvarToggles();
+  if (!$('#panel-toggles').hidden) renderToggles();
+}
 $('#javaList').addEventListener('click', (e) => {
   if (e.target.closest('#jselBotao')) { javaAberto = !javaAberto; renderJava(); return; }
   const b = e.target.closest('[data-java]'); if (!b) return;
@@ -1050,7 +1102,9 @@ $('#browseBtn').onclick = async () => {
 
 /* boot (renderNews fica no boot do fórum — depende dos posts) */
 definirPastaJogo().then(() => { carregarVersoes(); });
+restaurarToggles();
 renderStats(); renderVersions(); renderJava(); renderToggles(); renderAccounts(); renderMemory();
+sincronizarAutostart();
 carregarJava();
 
 /* ============================================================

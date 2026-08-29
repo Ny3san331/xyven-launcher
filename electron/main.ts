@@ -49,6 +49,15 @@ function createWindow() {
   /* ---------- diálogo de pasta e versão (o preload já expunha, faltava o handler) ---------- */
   ipcMain.handle('dialog:open', async (_e, opts) => dialog.showOpenDialog(win, opts || { properties: ['openDirectory'] }));
   ipcMain.handle('app:version', () => app.getVersion());
+
+  /* "Abrir com o PC". O estado real mora no Windows, nao no nosso storage:
+     ler de volta e o unico jeito do toggle nao mentir depois de um reboot
+     ou de o usuario ter desligado o item por fora. */
+  ipcMain.handle('app:autostart', (_e, ligar: boolean) => {
+    app.setLoginItemSettings({ openAtLogin: !!ligar });
+    return app.getLoginItemSettings().openAtLogin;
+  });
+  ipcMain.handle('app:autostartEstado', () => app.getLoginItemSettings().openAtLogin);
   /* %APPDATA%\.minecraft da maquina atual — nunca um caminho fixo */
   ipcMain.handle('app:pastaJogo', () => join(app.getPath('appData'), '.minecraft'));
   /* o renderer usa isso pra desconfiar de um caminho salvo torto */
