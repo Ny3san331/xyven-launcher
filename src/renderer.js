@@ -375,9 +375,15 @@ async function aplicarLimitesDeMemoria() {
 
 function renderMemory() {
   const { min, max } = CONFIG.memory;
-  const pct = ((state.mem - min) / (max - min)) * 100 + '%';
-  $('#memMb').textContent = state.mem + ' MB';
-  $('#memGb').textContent = '≈ ' + (state.mem / 1024).toFixed(2) + ' GB';
+  /* um valor gravado antes de o teto ser medido pode estar acima dele;
+     prender aqui evita a barra passar da trilha enquanto isso nao resolve */
+  const seguro = Math.min(max, Math.max(min, state.mem));
+  /* prende o estado, nao so o texto: exibir 5632 e lancar o jogo com 6144
+     seria a tela mentindo justamente sobre o que quebrou a JVM da amiga */
+  state.mem = seguro;
+  const pct = ((seguro - min) / (max - min)) * 100 + '%';
+  $('#memMb').textContent = seguro + ' MB';
+  $('#memGb').textContent = '≈ ' + (seguro / 1024).toFixed(2) + ' GB';
   $('#faderFill').style.width = pct;
   $('#faderKnob').style.left = pct;
   $('#memMin').textContent = min + ' MB';
@@ -694,11 +700,18 @@ $('#accountList').addEventListener('click', (e) => {
 
 /* fader de memória (arrastar) */
 (function fader() {
-  const el = $('#fader'), { min, max, step } = CONFIG.memory;
+  const el = $('#fader');
   const setFrom = (x) => {
+    /* le CONFIG.memory a cada arrasto, e nao uma vez na carga do modulo:
+       o teto so e conhecido depois que o Java e medido, e desestruturar
+       aqui em cima congelava o 7168 do HTML. O arrasto entregava valores
+       acima do teto real, e o renderMemory, que usa o teto vivo, punha o
+       botao em 111% da trilha — dai ele sair pra fora. */
+    const { min, max, step } = CONFIG.memory;
     const r = el.firstElementChild.getBoundingClientRect();
     const p = Math.min(1, Math.max(0, (x - r.left) / r.width));
-    state.mem = Math.round((min + p * (max - min)) / step) * step;
+    const bruto = Math.round((min + p * (max - min)) / step) * step;
+    state.mem = Math.min(max, Math.max(min, bruto));
     renderMemory();
   };
   el.addEventListener('pointerdown', (e) => {
