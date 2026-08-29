@@ -1,6 +1,6 @@
 {
   "name": "xyven-launcher",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Xyven Launcher",
   "main": ".vite/build/main.js",
   "scripts": {

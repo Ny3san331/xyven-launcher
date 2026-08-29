@@ -456,6 +456,9 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
 .notif__item{display:grid;grid-template-columns:34px 1fr;gap:11px;padding:13px 15px;border-bottom:2px dashed #cbb28a;align-items:start}
 .notif__item:last-child{border-bottom:0}
 .notif__item.is-new{background:var(--sand)}
+/* so as notificacoes que levam a algum lugar viram clicaveis */
+.notif__item.is-clicavel{cursor:pointer}
+.notif__item.is-clicavel:hover{background:var(--sand-dark)}
 .notif__mark{width:34px;height:34px;border:2px solid var(--ink);display:grid;place-items:center;font-size:8.5px;font-weight:700;letter-spacing:.04em;color:var(--on-accent,#33261c);text-align:center;line-height:1.1}
 .notif__txt{font-size:11.5px;line-height:1.6;min-width:0}
 .notif__txt b{font-family:var(--font-display);font-weight:400;font-size:13px}

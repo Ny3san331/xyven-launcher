@@ -1167,7 +1167,7 @@ $('#browseBtn').onclick = async () => {
 };
 
 /* boot (renderNews fica no boot do fórum — depende dos posts) */
-definirPastaJogo().then(() => { carregarVersoes(); retomarJogo(); });
+definirPastaJogo().then(async () => { await carregarVersoes(); retomarJogo(); });
 
 /* O jogo pode estar aberto sem o launcher: "Fechar ao tocar" o encerra e
    deixa o Minecraft de pé. Ao voltar, em vez de mostrar TOCAR como se nada
@@ -1178,7 +1178,14 @@ async function retomarJogo() {
   try { sessao = await window.api.mc.retomar(state.dir); } catch (e) { return; }
   if (!sessao) return;                       /* o normal: nada rodando */
 
-  if (sessao.versao) state.version = sessao.versao;
+  /* a sessão guarda o que foi executado de fato, que numa fita com Forge é
+     algo como "1.8.9-forge1.8.9-11.15.1.2318-1.8.9". Isso não é o nome da
+     fita: o launcher esconde as versões herdadas e mostra a vanilla. Volta
+     pelo índice moddedDe (vanilla -> forge) para exibir "1.8.9". */
+  if (sessao.versao) {
+    const fita = Object.keys(moddedDe).find((v) => moddedDe[v] === sessao.versao);
+    state.version = fita || sessao.versao;
+  }
   logDoJogo.length = 0;
   logDoJogo.push('[xyven] o Minecraft já estava aberto — retomando o log desta sessão.');
   marcarTocando(true);
@@ -2098,8 +2105,11 @@ function renderNotifs() {
   $('#notifList').innerHTML = notifs.length
     ? notifs.map(n => {
         const b = ALL_BADGES.find(x => x.id === n.badge);
-        return `<div class="notif__item ${n.read ? '' : 'is-new'}">
-          <span class="notif__mark" style="background:${b ? b.bg : 'var(--sand)'};color:${b ? b.fg : 'var(--ink)'}">${b ? b.label.slice(0, 4) : '—'}</span>
+        const selo = b ? b.label.slice(0, 4) : (n.acao === 'atualizar' ? 'NOVA' : '—');
+        const fundo = b ? b.bg : (n.acao === 'atualizar' ? 'var(--teal)' : 'var(--sand)');
+        const tinta = b ? b.fg : (n.acao === 'atualizar' ? 'var(--on-accent)' : 'var(--ink)');
+        return `<div class="notif__item ${n.read ? '' : 'is-new'}${n.acao ? ' is-clicavel' : ''}"${n.acao ? ' data-acao="' + n.acao + '"' : ''}>
+          <span class="notif__mark" style="background:${fundo};color:${tinta}">${selo}</span>
           <span class="notif__txt">${n.text}<span class="notif__when">${whenLabel(n.ts)}</span></span>
         </div>`;
       }).join('')
@@ -2139,6 +2149,21 @@ $('#bellBtn').onclick = (e) => {
 
 $('#notifClear').onclick = () => { notifs = []; saveNotifs(); renderNotifs(); };
 
+/* a notificação de versão nova leva direto ao lugar de atualizar — mandar
+   a pessoa procurar o caminho sozinha é o que ela ja teria feito sem aviso */
+$('#notifList').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-acao="atualizar"]')) return;
+  $('#notifPanel').hidden = true;
+  open($('#settingsOverlay')); renderJava(); renderMemory();
+  /* $$ devolve NodeList, que nao tem .find — espalhar antes */
+  const aba = [...$$('.tab')].find((t) => t.dataset.tab === 'launcher');
+  if (aba) aba.click();
+  /* ja dispara a verificação: quem veio pela notificação não deveria
+     precisar clicar em VERIFICAR pra descobrir o que o aviso já disse */
+  const botao = $('#btnAtualizar');
+  if (botao && !modoAtualizar) botao.click();
+});
+
 document.addEventListener('click', (e) => {
   const p = $('#notifPanel');
   if (!p.hidden && !p.contains(e.target) && !$('#bellBtn').contains(e.target)) p.hidden = true;
@@ -2162,8 +2187,9 @@ async function conferirAtualizacaoNoBoot() {
 
   notifs.unshift({
     ts: Date.now(), read: false,
+    acao: 'atualizar',
     text: '<b>Saiu a versão ' + esc(r.ultima) + '</b><br>você está na ' + esc(r.atual) +
-          '. abra os Ajustes do launcher para baixar.'
+          '. clique aqui para atualizar.'
   });
   notifs = notifs.slice(0, 30);
   saveNotifs(); renderNotifs(); ringBell();
