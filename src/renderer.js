@@ -247,6 +247,13 @@ function restaurarToggles() {
   });
 }
 
+/* segundo estado do botao "VERIFICAR": depois de achar versao nova ele
+   vira "ATUALIZAR". Declarado aqui em cima porque renderToggles() le a
+   variavel e roda no boot — um 'let' abaixo dela daria TDZ, que ja quebrou
+   este arquivo duas vezes. */
+let modoAtualizar = false;
+let soltarProgresso = null;
+
 function renderToggles() {
   const list = state.tab === 'discord' ? CONFIG.toggles.discord : CONFIG.toggles.launcher;
   let html = list.map(t => `
@@ -268,6 +275,8 @@ function renderToggles() {
   }
   $('#panel-toggles').innerHTML = html;
   if ($('#estadoAtualizar')) mostrarVersaoAtual();
+  /* o botao e recriado a cada render: devolve o rotulo se havia atualizacao */
+  if (modoAtualizar && $('#btnAtualizar')) $('#btnAtualizar').textContent = 'ATUALIZAR';
 }
 
 /* mostra a versão instalada assim que a aba abre */
@@ -280,6 +289,8 @@ async function mostrarVersaoAtual() {
 /* o botão é recriado a cada render, então vai por delegação */
 $('#panel-toggles').addEventListener('click', async (e) => {
   if (!e.target.closest('#btnAtualizar')) return;
+  /* o botao tem dois papeis; neste modo quem responde e o handler de baixo */
+  if (modoAtualizar) return;
   const botao = $('#btnAtualizar'), estado = $('#estadoAtualizar');
   botao.disabled = true;
   estado.className = 'switch__estado';
@@ -293,12 +304,47 @@ $('#panel-toggles').addEventListener('click', async (e) => {
   if (r.temNova) {
     estado.className = 'switch__estado switch__estado--nova';
     estado.textContent = 'saiu a ' + r.ultima + ' — você tem a ' + r.atual;
-    if (r.link && confirm('a versão ' + r.ultima + ' está disponível. abrir a página de download?')) {
-      window.api.abrirLink(r.link);
-    }
+    /* o mesmo botao vira o de instalar: mandar a pessoa pra pagina de
+       download significava, na pratica, que ninguem atualizava */
+    modoAtualizar = true;
+    botao.textContent = 'ATUALIZAR';
     return;
   }
+  modoAtualizar = false;
+  botao.textContent = 'VERIFICAR';
   estado.textContent = 'versão ' + r.atual + ' · já é a mais recente';
+});
+
+$('#panel-toggles').addEventListener('click', async (e) => {
+  if (!modoAtualizar || !e.target.closest('#btnAtualizar')) return;
+  e.stopImmediatePropagation();
+  const botao = $('#btnAtualizar'), estado = $('#estadoAtualizar');
+  if (!temApi() || !window.api.app.baixarAtualizacao) { estado.textContent = 'não disponível aqui.'; return; }
+
+  botao.disabled = true;
+  estado.className = 'switch__estado';
+  estado.textContent = 'baixando... 0%';
+
+  if (soltarProgresso) soltarProgresso();
+  soltarProgresso = window.api.app.aoProgressoAtualizacao((d) => {
+    if (!d || typeof d.pct !== 'number') return;
+    const mb = d.total ? ' (' + (d.baixado / 1048576).toFixed(0) + '/' + (d.total / 1048576).toFixed(0) + ' MB)' : '';
+    estado.textContent = 'baixando... ' + d.pct + '%' + mb;
+  });
+
+  const r = await window.api.app.baixarAtualizacao();
+  if (soltarProgresso) { soltarProgresso(); soltarProgresso = null; }
+  botao.disabled = false;
+
+  if (!r || !r.ok) { estado.textContent = (r && r.erro) || 'não consegui baixar.'; return; }
+
+  estado.textContent = 'verificado · atualizando, o Xyven vai reabrir';
+  botao.disabled = true;
+  const i = await window.api.app.instalarAtualizacao(r.caminho);
+  if (!i || !i.ok) {
+    botao.disabled = false;
+    estado.textContent = (i && i.erro) || 'não consegui atualizar.';
+  }
 });
 
 function renderAccounts() {
@@ -2063,7 +2109,32 @@ document.addEventListener('click', (e) => {
 });
 
 /* boot das telas novas — depois dos blocos, senao pega TDZ */
+/* Verificacao silenciosa no boot. Antes so existia o botao em Ajustes:
+   quem nunca abrisse aquela aba jamais ficava sabendo que saiu versao
+   nova. Agora o sininho avisa sozinho — uma vez por versao, senao viraria
+   ruido a cada abertura do launcher. */
+async function conferirAtualizacaoNoBoot() {
+  if (!temApi() || !window.api.app || !window.api.app.atualizacao) return;
+  let r;
+  try { r = await window.api.app.atualizacao(); } catch (e) { return; }
+  if (!r || !r.ok || !r.temNova || !r.ultima) return;
+
+  let avisada = null;
+  try { avisada = localStorage.getItem('xyven.avisoVersao'); } catch (e) { /* sem storage */ }
+  if (avisada === r.ultima) return;
+  try { localStorage.setItem('xyven.avisoVersao', r.ultima); } catch (e) { /* sem storage */ }
+
+  notifs.unshift({
+    ts: Date.now(), read: false,
+    text: '<b>Saiu a versão ' + esc(r.ultima) + '</b><br>você está na ' + esc(r.atual) +
+          '. abra os Ajustes do launcher para baixar.'
+  });
+  notifs = notifs.slice(0, 30);
+  saveNotifs(); renderNotifs(); ringBell();
+}
+
 renderNotifs();
+conferirAtualizacaoNoBoot();
 /* primeira execucao: nao deixa usar sem conta */
 if (!temConta()) setTimeout(() => exigirConta('Entrar para começar'), 400);
 if (profile.nick !== state.account) { profile.nick = state.account; profile.skin = state.account; }

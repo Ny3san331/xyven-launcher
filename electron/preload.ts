@@ -14,6 +14,13 @@ contextBridge.exposeInMainWorld('api', {
     atualizacao: () => ipcRenderer.invoke('app:atualizacao'),
     autostart: (ligar: boolean) => ipcRenderer.invoke('app:autostart', ligar),
     autostartEstado: () => ipcRenderer.invoke('app:autostartEstado'),
+    baixarAtualizacao: () => ipcRenderer.invoke('app:baixarAtualizacao'),
+    instalarAtualizacao: (caminho: string) => ipcRenderer.invoke('app:instalarAtualizacao', caminho),
+    aoProgressoAtualizacao: (cb: (d: unknown) => void) => {
+      const h = (_e: unknown, d: unknown) => cb(d);
+      ipcRenderer.on('atualizacao:progresso', h);
+      return () => ipcRenderer.removeListener('atualizacao:progresso', h);
+    },
   },
 
   auth: {

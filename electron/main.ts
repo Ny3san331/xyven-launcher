@@ -2,7 +2,11 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
-import { copyFile, mkdir, stat, writeFile } from 'fs/promises';
+import { copyFile, mkdir, stat, writeFile, unlink } from 'fs/promises';
+import { createWriteStream } from 'fs';
+import { createHash } from 'crypto';
+import { spawn } from 'child_process';
+import { tmpdir } from 'os';
 import { shell, clipboard } from 'electron';
 
 function createWindow() {
@@ -70,27 +74,153 @@ function createWindow() {
      compara a versão do app com a última Release do repositório. */
   ipcMain.handle('app:atualizacao', async () => {
     const atual = app.getVersion();
+    const nums = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);
+    /* compara numero a numero: 1.10.0 e maior que 1.9.0 */
+    const maiorQue = (a: number[], b: number[]) => {
+      for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+      }
+      return false;
+    };
     try {
-      const r = await fetch('https://api.github.com/repos/Ny3san331/xyven-launcher/releases/latest', {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Xyven-Launcher' }
-      });
-      if (r.status === 404) return { ok: true, atual, nenhuma: true };
+      /* A lista, e nao /releases/latest. O "latest" do GitHub e a release
+         publicada mais recentemente, nao a de maior versao, e ele omite
+         pre-releases sem avisar. Nos dois casos alguem desatualizado seria
+         informado de que estava em dia — que e justamente o erro a evitar. */
+      const r = await fetch(
+        'https://api.github.com/repos/Ny3san331/xyven-launcher/releases?per_page=100',
+        { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Xyven-Launcher' } }
+      );
       if (!r.ok) return { ok: false, atual, erro: 'GitHub respondeu ' + r.status + '.' };
 
-      const j: any = await r.json();
-      const ultima = String(j.tag_name || '').replace(/^v/i, '');
-      if (!ultima) return { ok: true, atual, nenhuma: true };
+      const lista: any = await r.json();
+      const limpo = (t: unknown) => String(t || '').replace(/^v/i, '');
+      const validas = (Array.isArray(lista) ? lista : [])
+        .filter((x: any) => x && !x.draft && !x.prerelease && limpo(x.tag_name));
+      if (!validas.length) return { ok: true, atual, nenhuma: true };
 
-      /* compara número a número: 1.10.0 é maior que 1.9.0 */
-      const nums = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);
-      const [a, b] = [nums(ultima), nums(atual)];
-      let maior = false;
-      for (let i = 0; i < Math.max(a.length, b.length); i++) {
-        if ((a[i] || 0) !== (b[i] || 0)) { maior = (a[i] || 0) > (b[i] || 0); break; }
+      let melhor = validas[0];
+      for (const c of validas) {
+        if (maiorQue(nums(limpo(c.tag_name)), nums(limpo(melhor.tag_name)))) melhor = c;
       }
-      return { ok: true, atual, ultima, temNova: maior, link: j.html_url || null };
+      const ultima = limpo(melhor.tag_name);
+
+      return {
+        ok: true, atual, ultima,
+        temNova: maiorQue(nums(ultima), nums(atual)),
+        link: melhor.html_url || null
+      };
     } catch (e: any) {
       return { ok: false, atual, erro: 'sem conexão com o GitHub.' };
+    }
+  });
+
+  /* Baixa a Release e instala. Antes so abriamos a pagina de download e a
+     pessoa se virava — o que na pratica significava nunca atualizar.
+
+     O binario e verificado antes de rodar: o SHA-256 e calculado enquanto o
+     arquivo desce e comparado com o digest que a propria API do GitHub
+     informa. Nao batendo, o arquivo e apagado e nada e executado. Baixar e
+     rodar um .exe sem conferir seria o tipo de coisa que transforma uma
+     atualizacao em vetor de ataque. */
+  ipcMain.handle('app:baixarAtualizacao', async () => {
+    const cabecalho = { Accept: 'application/vnd.github+json', 'User-Agent': 'Xyven-Launcher' };
+    let destino = '';
+    try {
+      const r = await fetch(
+        'https://api.github.com/repos/Ny3san331/xyven-launcher/releases?per_page=100',
+        { headers: cabecalho }
+      );
+      if (!r.ok) return { ok: false, erro: 'GitHub respondeu ' + r.status + '.' };
+
+      const lista: any = await r.json();
+      const nums = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);
+      const limpo = (t: unknown) => String(t || '').replace(/^v/i, '');
+      const maiorQue = (a: number[], b: number[]) => {
+        for (let i = 0; i < Math.max(a.length, b.length); i++) {
+          if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+        }
+        return false;
+      };
+      const validas = (Array.isArray(lista) ? lista : [])
+        .filter((x: any) => x && !x.draft && !x.prerelease && limpo(x.tag_name));
+      if (!validas.length) return { ok: false, erro: 'nenhuma versão publicada.' };
+
+      let melhor = validas[0];
+      for (const c of validas) {
+        if (maiorQue(nums(limpo(c.tag_name)), nums(limpo(melhor.tag_name)))) melhor = c;
+      }
+      if (!maiorQue(nums(limpo(melhor.tag_name)), nums(app.getVersion()))) {
+        return { ok: false, erro: 'você já está na versão mais recente.' };
+      }
+
+      const asset = (melhor.assets || []).find((a: any) => /\.exe$/i.test(a.name || ''));
+      if (!asset) return { ok: false, erro: 'esta versão não tem instalador anexado.' };
+
+      const esperado = String(asset.digest || '').replace(/^sha256:/i, '').toLowerCase();
+      const total = Number(asset.size) || 0;
+
+      const bin = await fetch(asset.browser_download_url, { headers: { 'User-Agent': 'Xyven-Launcher' } });
+      if (!bin.ok || !bin.body) return { ok: false, erro: 'não consegui baixar (HTTP ' + bin.status + ').' };
+
+      destino = join(tmpdir(), asset.name);
+      const arquivo = createWriteStream(destino);
+      const hash = createHash('sha256');
+      let baixado = 0, ultimo = -1;
+
+      for await (const pedaco of bin.body as any) {
+        const buf = Buffer.from(pedaco);
+        hash.update(buf);
+        baixado += buf.length;
+        if (!arquivo.write(buf)) await new Promise((res) => arquivo.once('drain', res));
+        const pct = total ? Math.floor((baixado / total) * 100) : 0;
+        if (pct !== ultimo && !win.isDestroyed()) {
+          ultimo = pct;
+          win.webContents.send('atualizacao:progresso', { pct, baixado, total });
+        }
+      }
+      await new Promise((res, rej) => { arquivo.end(); arquivo.on('finish', res); arquivo.on('error', rej); });
+
+      if (total && baixado !== total) {
+        await unlink(destino).catch(() => {});
+        return { ok: false, erro: 'o download veio incompleto.' };
+      }
+      const obtido = hash.digest('hex');
+      /* sem digest publicado nao da pra afirmar que o arquivo esta integro:
+         melhor recusar do que executar as cegas */
+      if (!esperado) {
+        await unlink(destino).catch(() => {});
+        return { ok: false, erro: 'o GitHub não informou o hash; não vou executar sem conferir.' };
+      }
+      if (obtido !== esperado) {
+        await unlink(destino).catch(() => {});
+        return { ok: false, erro: 'o arquivo baixado não confere com o publicado. cancelei por segurança.' };
+      }
+
+      return { ok: true, caminho: destino, versao: limpo(melhor.tag_name) };
+    } catch (e: any) {
+      if (destino) await unlink(destino).catch(() => {});
+      return { ok: false, erro: e?.message || 'falha ao baixar.' };
+    }
+  });
+
+  /* Atualiza sem mostrar assistente nenhum.
+
+     '/S' e o modo silencioso do NSIS: sem janela, sem perguntar pasta. Ele
+     le do registro onde a versao anterior foi instalada e substitui por
+     cima, entao a instalacao existente e atualizada em vez de duplicada.
+     '--force-run' faz o proprio instalador reabrir o Xyven no fim.
+
+     O launcher precisa sair: com ele aberto o NSIS nao consegue trocar os
+     arquivos em uso. */
+  ipcMain.handle('app:instalarAtualizacao', (_e, caminho: string) => {
+    if (!caminho) return { ok: false, erro: 'nada para instalar.' };
+    try {
+      spawn(caminho, ['/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => app.quit(), 800);
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, erro: e?.message || 'não consegui iniciar a atualização.' };
     }
   });
 
