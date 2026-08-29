@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
+import { copyFile, mkdir, writeFile } from 'fs/promises';
 import { shell, clipboard } from 'electron';
 
 function createWindow() {
@@ -49,6 +50,34 @@ function createWindow() {
   ipcMain.handle('dialog:open', async (_e, opts) => dialog.showOpenDialog(win, opts || { properties: ['openDirectory'] }));
   ipcMain.handle('app:version', () => app.getVersion());
 
+  /* ---------- verificar atualização ----------
+     compara a versão do app com a última Release do repositório. */
+  ipcMain.handle('app:atualizacao', async () => {
+    const atual = app.getVersion();
+    try {
+      const r = await fetch('https://api.github.com/repos/Ny3san331/xyven-launcher/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Xyven-Launcher' }
+      });
+      if (r.status === 404) return { ok: true, atual, nenhuma: true };
+      if (!r.ok) return { ok: false, atual, erro: 'GitHub respondeu ' + r.status + '.' };
+
+      const j: any = await r.json();
+      const ultima = String(j.tag_name || '').replace(/^v/i, '');
+      if (!ultima) return { ok: true, atual, nenhuma: true };
+
+      /* compara número a número: 1.10.0 é maior que 1.9.0 */
+      const nums = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);
+      const [a, b] = [nums(ultima), nums(atual)];
+      let maior = false;
+      for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        if ((a[i] || 0) !== (b[i] || 0)) { maior = (a[i] || 0) > (b[i] || 0); break; }
+      }
+      return { ok: true, atual, ultima, temNova: maior, link: j.html_url || null };
+    } catch (e: any) {
+      return { ok: false, atual, erro: 'sem conexão com o GitHub.' };
+    }
+  });
+
   /* ---------- Java ---------- */
   /* ---------- login Microsoft (device code) ---------- */
   let codigoAtual: any = null;
@@ -75,12 +104,53 @@ function createWindow() {
     return true;
   });
 
+  /* ---------- cosmeticos: contrato com o mod ----------
+     escreve <gameDir>/xyven/cosmetics.json + a textura, para o mod
+     dentro do jogo ler sem precisar falar com o launcher. */
+  ipcMain.handle('cosmeticos:aplicar', async (_e, dados) => {
+    try {
+      const destino = join(dados.gameDir, 'xyven');
+      await mkdir(join(destino, 'capes'), { recursive: true });
+
+      let arquivoCapa: string | null = null;
+      if (dados.capa && dados.capa.arquivo) {
+        /* capa do launcher: copia o png pra pasta do jogo */
+        const origem = join(__dirname, '..', 'renderer', 'main_window', 'capes', dados.capa.arquivo);
+        await copyFile(origem, join(destino, 'capes', dados.capa.arquivo));
+        arquivoCapa = 'xyven/capes/' + dados.capa.arquivo;
+      }
+
+      await writeFile(join(destino, 'cosmetics.json'), JSON.stringify({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        player: { name: dados.nick, uuid: dados.uuid || null },
+        cape: dados.capa ? {
+          id: dados.capa.id,
+          source: dados.capa.origem,              /* 'launcher' | 'mojang' | null */
+          file: arquivoCapa,                      /* caminho relativo ao .minecraft */
+          /* capa do launcher vem por arquivo; a da Mojang, por url */
+          url: dados.capa.origem === 'launcher' ? null : (dados.capa.url || null)
+        } : null,
+        model: dados.slim ? 'slim' : 'classic'
+      }, null, 2));
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, erro: e?.message || String(e) };
+    }
+  });
+
   ipcMain.handle('mc:conta', (_e, nick: string) => mc.contaMojang(nick));
   ipcMain.handle('java:detectar', () => mc.detectarJava());
   ipcMain.handle('java:exigido', (_e, versao: string) => mc.javaExigido(versao));
 
   /* ---------- Minecraft ---------- */
   ipcMain.handle('mc:versoes', () => mc.listarVersoes());
+  ipcMain.handle('mc:instalarForge', async (_e, mcVersao: string, raiz: string) => {
+    const enviar = (p: unknown) => { if (!win.isDestroyed()) win.webContents.send('mc:progresso', p); };
+    try { return { ok: true, ...(await mc.instalarForge(mcVersao, raiz, enviar)) }; }
+    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
+  ipcMain.handle('mc:instaladas', (_e, raiz: string) => mc.versoesInstaladas(raiz));
   ipcMain.handle('mc:rodando', () => mc.jogoRodando());
   ipcMain.handle('mc:cancelar', () => { mc.cancelar(); return true; });
   ipcMain.handle('mc:matar', () => { mc.matarJogo(); return true; });

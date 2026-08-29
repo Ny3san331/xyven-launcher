@@ -33,10 +33,8 @@ const CONFIG = {
     { name: 'Java 17', path: '...\\jdk-17\\bin\\javaw.exe',       tag: 'INDICADO' },
     { name: 'Java 21', path: '...\\jdk-21\\bin\\javaw.exe',       tag: '1.20+' }
   ],
-  accounts: [
-    { name: 'Ny3san', type: 'microsoft · premium' },
-    { name: 'XyvenDev', type: 'microsoft · premium' }
-  ],
+  /* vazio de proposito: instalacao nova nao vem com conta de ninguem */
+  accounts: [],
   toggles: {
     launcher: [
       { key: 'theme',     on: false, label: 'Modo escuro', desc: 'mesmo tema, com a luz apagada' },
@@ -56,7 +54,7 @@ const state = {
   version: '1.8.9',
   mem: 2048,
   java: 'Java 17',
-  account: 'Ny3san',
+  account: '',
   tab: 'jogo'
 };
 
@@ -91,7 +89,7 @@ function renderStats() {
   $('#statVersion').textContent = state.version;
   $('#statMem').textContent = state.mem + ' MB';
   $('#statJava').textContent = state.java;
-  $('#chipName').textContent = state.account;
+  $('#chipName').textContent = state.account || 'ENTRAR';
   setAvatar($('#chipInitial'), state.account);
   setAvatar($('#menuInitial'), state.account);
   $('#menuName').textContent = state.account;
@@ -108,6 +106,12 @@ const SKIN_URL = (nick, px) => 'https://mc-heads.net/avatar/' + encodeURICompone
 /* textContent apagaria a <img> da cabeça; só reescreve se o nick mudou.
    use SEMPRE isto pra trocar o nick de um avatar — nunca textContent direto. */
 function setAvatar(el, nick) {
+  if (!nick) {                       /* sem conta ainda */
+    el.textContent = '?';
+    delete el.dataset.skin; delete el.dataset.painted;
+    el.querySelectorAll('img').forEach((i) => i.remove());
+    return;
+  }
   if (el.dataset.skin === nick && el.querySelector('img')) return;
   el.textContent = nick[0];
   el.dataset.skin = nick;
@@ -185,12 +189,57 @@ function renderJava() {
 
 function renderToggles() {
   const list = state.tab === 'discord' ? CONFIG.toggles.discord : CONFIG.toggles.launcher;
-  $('#panel-toggles').innerHTML = list.map(t => `
+  let html = list.map(t => `
     <div class="switch">
       <span><span class="switch__label">${t.label}</span><br><span class="switch__desc">${t.desc}</span></span>
       <button class="knob ${t.on ? 'is-on' : ''}" data-toggle="${t.key}"><span></span></button>
     </div>`).join('');
+
+  /* a linha de atualização só faz sentido na aba do launcher */
+  if (state.tab !== 'discord') {
+    html += `
+    <div class="switch">
+      <span><span class="switch__label">Atualização</span><br><span class="switch__desc">ver se saiu versão nova do Xyven</span></span>
+      <span class="switch__acao">
+        <button class="btn btn--teal" id="btnAtualizar" style="height:36px;font-size:11px">VERIFICAR</button>
+        <span class="switch__estado" id="estadoAtualizar"></span>
+      </span>
+    </div>`;
+  }
+  $('#panel-toggles').innerHTML = html;
+  if ($('#estadoAtualizar')) mostrarVersaoAtual();
 }
+
+/* mostra a versão instalada assim que a aba abre */
+async function mostrarVersaoAtual() {
+  if (!temApi() || !window.api.app) return;
+  try { $('#estadoAtualizar').textContent = 'versão ' + (await window.api.app.getVersion()); }
+  catch (e) { /* sem api */ }
+}
+
+/* o botão é recriado a cada render, então vai por delegação */
+$('#panel-toggles').addEventListener('click', async (e) => {
+  if (!e.target.closest('#btnAtualizar')) return;
+  const botao = $('#btnAtualizar'), estado = $('#estadoAtualizar');
+  botao.disabled = true;
+  estado.className = 'switch__estado';
+  estado.textContent = 'procurando...';
+
+  const r = temApi() && window.api.app ? await window.api.app.atualizacao() : null;
+  botao.disabled = false;
+
+  if (!r || !r.ok) { estado.textContent = (r && r.erro) || 'não consegui verificar.'; return; }
+  if (r.nenhuma) { estado.textContent = 'versão ' + r.atual + ' · nenhuma publicada ainda'; return; }
+  if (r.temNova) {
+    estado.className = 'switch__estado switch__estado--nova';
+    estado.textContent = 'saiu a ' + r.ultima + ' — você tem a ' + r.atual;
+    if (r.link && confirm('a versão ' + r.ultima + ' está disponível. abrir a página de download?')) {
+      window.api.abrirLink(r.link);
+    }
+    return;
+  }
+  estado.textContent = 'versão ' + r.atual + ' · já é a mais recente';
+});
 
 function renderAccounts() {
   $('#accountList').innerHTML = CONFIG.accounts.map(a => `
@@ -264,7 +313,22 @@ function goToScreen(name) {
 }
 
 /* menu de contas -> tela de perfil (marca o rail junto) */
-$$('[data-open="profile"]').forEach(b => b.onclick = () => { close($('#accountMenu')); goToScreen('profile'); });
+$$('[data-open="profile"]').forEach(b => b.onclick = () => {
+  if (!exigirConta('Entrar para ver o perfil')) return;
+  close($('#accountMenu')); goToScreen('profile');
+});
+
+/* ---- porteiro: quase tudo depende de ter uma conta ---- */
+function temConta() { return CONFIG.accounts.length > 0 && !!state.account; }
+
+function exigirConta(motivo) {
+  if (temConta()) return true;
+  close($('#accountMenu'));
+  open($('#addOverlay'));
+  const t = $('#addOverlay').querySelector('.modal__head h3');
+  if (t) t.textContent = motivo || 'Entrar para começar';
+  return false;
+}
 
 /* ---- remover a conta ativa ---- */
 $('#removerConta').onclick = async () => {
@@ -710,6 +774,7 @@ const logDoJogo = [];
 
 $('#playBtn').onclick = async () => {
   if (jogoAbrindo) return;
+  if (!exigirConta('Entrar para jogar')) return;
   if (jogoAberto) {                     /* segundo clique: encerra o jogo */
     if (temApi()) window.api.mc.matar();
     return;
@@ -743,8 +808,32 @@ $('#playBtn').onclick = async () => {
     }
   }
 
+  /* ---- Forge automatico ----
+     fita vanilla escolhida: usa o Forge dela se ja existir, senao
+     instala. Se nao houver Forge pra essa versao, segue no vanilla. */
+  let versaoAlvo = state.version;
+  await carregarVersoes();          /* o disco manda, nao o que carregou no boot */
+  const escolhida = CONFIG.versions.find((v) => v.id === state.version);
+  if (!escolhida || !escolhida.herda) {
+    const jaInstalado = moddedDe[state.version];
+    if (jaInstalado) {
+      versaoAlvo = jaInstalado;
+    } else if (window.api.mc.instalarForge) {
+      $('#progressLabel').textContent = 'INSTALANDO O FORGE ' + state.version;
+      const rf = await window.api.mc.instalarForge(state.version, state.dir || $('#dirInput').value);
+      if (rf && rf.ok) {
+        versaoAlvo = rf.id;
+        await carregarVersoes();
+      } else {
+        /* sem Forge pra essa versao: avisa no console e segue vanilla */
+        logDoJogo.push('[xyven] sem Forge para ' + state.version + ': ' + ((rf && rf.erro) || 'motivo desconhecido'));
+        logDoJogo.push('[xyven] abrindo em vanilla.');
+      }
+    }
+  }
+
   const r = await window.api.mc.lancar({
-    versao: state.version,
+    versao: versaoAlvo,
     memoriaMb: state.mem,
     javaPath: java.path,
     gameDir: state.dir || $('#dirInput').value,
@@ -793,6 +882,32 @@ $('#cancelBtn').onclick = () => {
 };
 
 /* Java de verdade no lugar da lista de exemplo */
+/* Forge e Fabric nao sao instalados pelo launcher: o instalador deles
+   cria a pasta em versions/. Aqui a gente so lista o que ja existe. */
+/* base -> versao modded instalada (ex.: '1.8.9' -> '1.8.9-forge...') */
+const moddedDe = {};
+
+async function carregarVersoes() {
+  if (!temApi() || !window.api.mc.instaladas) return;
+  try {
+    const raiz = state.dir || $('#dirInput').value;
+    const inst = await window.api.mc.instaladas(raiz);
+    /* zera antes: se a pasta foi apagada, o vinculo tem que sumir junto */
+    Object.keys(moddedDe).forEach((k) => delete moddedDe[k]);
+    inst.forEach((v) => {
+      if (v.herda) {
+        /* Forge/Fabric nao viram fita: sao detalhe de como a base abre.
+           guarda so o vinculo base -> versao modded. */
+        moddedDe[v.herda] = v.id;
+        return;
+      }
+      if (CONFIG.versions.some((x) => x.id === v.id)) return;
+      CONFIG.versions.push({ id: v.id, herda: null, note: 'instalada' });
+    });
+    renderVersions();
+  } catch (e) { console.warn('não consegui listar as versões instaladas', e); }
+}
+
 async function carregarJava() {
   if (!temApi()) return;
   try {
@@ -823,6 +938,7 @@ $('#browseBtn').onclick = async () => {
 
 /* boot (renderNews fica no boot do fórum — depende dos posts) */
 state.dir = $('#dirInput').value;
+carregarVersoes();
 renderStats(); renderVersions(); renderJava(); renderToggles(); renderAccounts(); renderMemory();
 carregarJava();
 
@@ -1323,11 +1439,15 @@ function skinParts(slim) {
   const base = [
     { name: 'head', w: 8,  h: 8,  d: 8, u: 0,  v: 0,  x: -4,               y: 0,  o: { u: 32, v: 0 } },
     { name: 'body', w: 8,  h: 12, d: 4, u: 16, v: 16, x: -4,               y: 8,  o: { u: 16, v: 32 } },
-    { name: 'armR', w: aw, h: 12, d: 4, u: 40, v: 16, x: -(4 + aw) - 0.02, y: slim ? 8.5 : 8, o: { u: 40, v: 32 } },
-    { name: 'armL', w: aw, h: 12, d: 4, u: 32, v: 48, x: 4 + 0.02,         y: slim ? 8.5 : 8, o: { u: 48, v: 48 } },
-    { name: 'legR', w: 4,  h: 12, d: 4, u: 0,  v: 16, x: -4 - 0.02,        y: 20, o: { u: 0,  v: 32 } },
-    { name: 'legL', w: 4,  h: 12, d: 4, u: 16, v: 48, x: 0.02,             y: 20, o: { u: 0,  v: 48 } }
+    { name: 'armR', w: aw, h: 12, d: 4, u: 40, v: 16, x: -(4 + aw) + 0.02, y: slim ? 8.5 : 8, o: { u: 40, v: 32 } },
+    { name: 'armL', w: aw, h: 12, d: 4, u: 32, v: 48, x: 4 - 0.02,         y: slim ? 8.5 : 8, o: { u: 48, v: 48 } },
+    { name: 'legR', w: 4,  h: 12, d: 4, u: 0,  v: 16, x: -4 + 0.02,        y: 20, o: { u: 0,  v: 32 } },
+    { name: 'legL', w: 4,  h: 12, d: 4, u: 16, v: 48, x: -0.02,            y: 20, o: { u: 0,  v: 48 } }
   ];
+  /* braços e pernas SOBREPÕEM o torso em 0.02 em vez de deixar folga:
+     com folga aparecia fresta transparente nas costas; com sobreposição
+     a face interna fica dentro do corpo, sem fresta e sem z-fighting */
+
   /* segunda camada (cabelo, jaqueta, manga, calça): mesma caixa 6% maior */
   const over = base.map(p => Object.assign({}, p, { u: p.o.u, v: p.o.v, over: true }));
   return base.concat(over);
@@ -1362,7 +1482,7 @@ function buildSkin() { buildSkinInto('#skinBody', profile.skin, 9, capeApplied, 
 function buildSkinInto(sel, nick, sc, capeId, slim) {
   const stage = $(sel); if (!stage) return;
   const tex = SKIN_TEX(nick);
-  const capeDef = capasDaConta.find(c => c.id === capeId);
+  const capeDef = capasDaConta.concat(CAPAS_XYVEN).find(c => c.id === capeId);
   const capeTex = (capeDef && capeDef.url) ? String(capeDef.url).replace(/^http:/, 'https:') : '';
 
   const partesHtml = skinParts(slim).map(p => {
@@ -1390,12 +1510,20 @@ function buildSkinInto(sel, nick, sc, capeId, slim) {
   let capaHtml = '';
   if (capeTex) {
     const cw = 10 * sc, ch = 16 * sc;
-    capaHtml = '<div style="position:absolute;left:50%;top:0;width:0;height:0;transform-style:preserve-3d;' +
-      'transform:translate3d(0,' + (16 * sc) + 'px,' + (-2.6 * sc) + 'px) rotateX(-9deg)">' +
-      '<div class="skin__part" style="position:absolute;left:50%;top:50%;width:' + cw + 'px;height:' + ch + 'px;' +
-      'margin-left:' + (-cw / 2) + 'px;margin-top:' + (-ch / 2) + 'px;' +
-      'background-image:url(' + capeTex + ');background-size:' + (64 * sc) + 'px ' + (32 * sc) + 'px;' +
-      'background-position:' + (-1 * sc) + 'px ' + (-1 * sc) + 'px;transform:rotateY(180deg)"></div></div>';
+    /* capa: painel 10x16 pendurado na linha do ombro.
+       O pivo fica no TOPO (y = 8, atras do torso) e o giro leva so a barra
+       de baixo pra tras — com pivo no centro, a metade de cima entrava no corpo.
+       O Z vai NA face, depois do rotateY(180): no wrapper, o backface-visibility
+       nao recorta e a capa reaparece no peito. */
+    capaHtml =
+      '<div style="position:absolute;left:50%;top:0;width:0;height:0;transform-style:preserve-3d;' +
+        'transform:translate3d(0,' + (8 * sc) + 'px,0) rotateX(-11deg)">' +
+        '<div class="skin__part" style="position:absolute;left:50%;top:0;' +
+          'width:' + cw + 'px;height:' + ch + 'px;margin-left:' + (-cw / 2) + 'px;' +
+          'background-image:url(' + capeTex + ');' +
+          'background-size:' + (64 * sc) + 'px ' + (32 * sc) + 'px;' +
+          'background-position:' + (-1 * sc) + 'px ' + (-1 * sc) + 'px;' +
+          'transform:rotateY(180deg) translateZ(' + (2.3 * sc) + 'px)"></div></div>';
   }
   stage.innerHTML = capaHtml + partesHtml;
 
@@ -1460,7 +1588,17 @@ skinView = makeSkinDrag('#skinStage', '#skinBody');
    pirata nao tem capa da Mojang -> so "SEM CAPA" com X.
    premium: a API publica devolve so a capa EQUIPADA; o catalogo
    completo depende do login Microsoft (api.minecraftservices.com). */
-let capasDaConta = [];        /* [{ id, name, url }] */
+/* capas do proprio launcher: nao dependem da Mojang, entao valem
+   tambem para conta offline. ARTE PROVISORIA (design pendente). */
+const CAPAS_XYVEN = [
+  { id: 'caveira',  name: 'CAVEIRA',   arquivo: 'caveira.png' },
+  { id: 'xyven',    name: 'XYVEN',     arquivo: 'xyven.png' },
+  { id: 'fita',     name: 'FITA',      arquivo: 'fita.png' },
+  { id: 'lado-b',   name: 'LADO B',    arquivo: 'lado-b.png' },
+  { id: 'fundador', name: 'FUNDADOR',  arquivo: 'fundador.png' }
+].map((c) => Object.assign({}, c, { url: 'capes/' + c.arquivo, origem: 'launcher' }));
+
+let capasDaConta = [];        /* [{ id, name, url }] — vem da Mojang */
 let contaMS = null;           /* conta Microsoft logada nesta sessao */
 let contaEhPremium = false;
 
@@ -1498,7 +1636,7 @@ async function carregarCapas(nick) {
   } catch (e) { /* offline: segue sem capa */ }
 }
 
-const SKINS_DEFAULT = ['Ny3san', 'XyvenDev', 'Kauan'];
+const SKINS_DEFAULT = [];   /* enche conforme o usuario salva */
 let savedSkins, skinDraft, capeDraft, slimDraft;
 try { savedSkins = JSON.parse(localStorage.getItem('xyven.skins') || 'null') || SKINS_DEFAULT.slice(); }
 catch (e) { savedSkins = SKINS_DEFAULT.slice(); }
@@ -1507,15 +1645,15 @@ const saveSkins = () => { try { localStorage.setItem('xyven.skins', JSON.stringi
 
 function renderSkinEditor() {
   $('#skinEdName').textContent = skinDraft;
-  const escolhida = [{ id: 'none', name: 'sem capa' }].concat(capasDaConta).find(c => c.id === capeDraft);
+  const escolhida = [{ id: 'none', name: 'sem capa' }].concat(capasDaConta, CAPAS_XYVEN).find(c => c.id === capeDraft);
   $('#skinEdMeta').textContent = 'capa: ' + ((escolhida && escolhida.name) || 'sem capa').toLowerCase() + ' · arraste pra girar';
-  $('#capeCount').textContent = capasDaConta.length
-    ? capasDaConta.length + (capasDaConta.length === 1 ? ' capa' : ' capas')
-    : (contaEhPremium ? 'nenhuma capa nesta conta' : 'conta pirata · sem capa');
+  const totalCapas = capasDaConta.length + CAPAS_XYVEN.length;
+  $('#capeCount').textContent = totalCapas + (totalCapas === 1 ? ' capa' : ' capas')
+    + (capasDaConta.length ? '' : (contaEhPremium ? ' · nenhuma da conta' : ' · só do launcher'));
   $('#skinCount').textContent = savedSkins.length + ' salvas';
 
   /* lista = SEM CAPA + o que a conta realmente tem */
-  const lista = [{ id: 'none', name: 'SEM CAPA', url: '' }].concat(capasDaConta);
+  const lista = [{ id: 'none', name: 'SEM CAPA', url: '' }].concat(capasDaConta, CAPAS_XYVEN);
   const semNenhuma = capasDaConta.length === 0;
   const X = '<span class="cape__x"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>';
 
@@ -1553,7 +1691,7 @@ $('#openSkinEditor').onclick = () => {
   open($('#skinOverlay'));
   /* busca na Mojang e redesenha quando responder */
   carregarCapas(profile.nick).then(() => {
-    if (!capasDaConta.some((c) => c.id === capeDraft)) capeDraft = 'none';
+    if (!capasDaConta.concat(CAPAS_XYVEN).some((c) => c.id === capeDraft)) capeDraft = 'none';
     renderSkinEditor();
   });
 };
@@ -1581,8 +1719,25 @@ $('#skinApply').onclick = () => {
   profile.slim = slimDraft;
   capeApplied = capeDraft;
   saveProfile(); saveSkins(); renderProfile();
+  gravarCosmeticos();
   close($('#skinOverlay'));
 };
+
+/* escreve <gameDir>/xyven/cosmetics.json + a textura, pro mod dentro
+   do jogo ler. o launcher nao precisa estar aberto depois disso. */
+async function gravarCosmeticos() {
+  if (!temApi() || !window.api.cosmeticos) return;
+  const capa = capasDaConta.concat(CAPAS_XYVEN).find((c) => c.id === capeApplied) || null;
+  try {
+    await window.api.cosmeticos({
+      gameDir: state.dir || $('#dirInput').value,
+      nick: state.account,
+      uuid: contaMS && contaMS.nick === state.account ? contaMS.uuid : null,
+      slim: !!profile.slim,
+      capa: capa ? { id: capa.id, origem: capa.origem || 'mojang', arquivo: capa.arquivo || null, url: capa.url } : null
+    });
+  } catch (e) { console.warn('não consegui gravar os cosméticos', e); }
+}
 
 /* gira a prévia do editor de forma independente da tela de perfil */
 const skinEdView = makeSkinDrag('#skinEdStage', '#skinEdBody');
@@ -1742,5 +1897,7 @@ document.addEventListener('click', (e) => {
 
 /* boot das telas novas — depois dos blocos, senao pega TDZ */
 renderNotifs();
+/* primeira execucao: nao deixa usar sem conta */
+if (!temConta()) setTimeout(() => exigirConta('Entrar para começar'), 400);
 if (profile.nick !== state.account) { profile.nick = state.account; profile.skin = state.account; }
 applyGroup(); renderProfile();

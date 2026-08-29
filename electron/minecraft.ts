@@ -149,6 +149,17 @@ function lerZip(buf: Buffer): { nome: string; dados: Buffer }[] {
 }
 
 /* ------------------------------------------------------------
+   Maven: "net.minecraftforge:forge:1.8.9-11.15.1.2318" vira
+   net/minecraftforge/forge/1.8.9-.../forge-1.8.9-....jar
+   O Forge descreve as bibliotecas assim, sem bloco de download.
+   ------------------------------------------------------------ */
+function caminhoMaven(nome: string): string {
+  const [grupo, artefato, versao, classificador] = nome.split(':');
+  const arquivo = artefato + '-' + versao + (classificador ? '-' + classificador : '') + '.jar';
+  return [...grupo.split('.'), artefato, versao, arquivo].join('/');
+}
+
+/* ------------------------------------------------------------
    regras de biblioteca (allow/disallow por sistema)
    ------------------------------------------------------------ */
 const SO = 'windows';
@@ -175,18 +186,71 @@ function chaveNative(lib: any): string | null {
    pipeline
    ------------------------------------------------------------ */
 
+/* Forge/Fabric herdam do JSON da versao base via inheritsFrom.
+   O filho manda em mainClass e argumentos; as bibliotecas dele vem
+   primeiro no classpath; o client.jar e os assets vem do pai. */
+async function resolverHeranca(vjson: any, raiz: string, sinal?: AbortSignal, nivel = 0): Promise<any> {
+  if (!vjson.inheritsFrom || nivel > 4) return vjson;
+  const pai = await jsonDaVersao(vjson.inheritsFrom, raiz, sinal);
+
+  const juntarArgs = (a: any, b: any) => (a || b) ? [...(b || []), ...(a || [])] : undefined;
+  const filho = vjson;
+  return Object.assign({}, pai, filho, {
+    libraries: [...(filho.libraries || []), ...(pai.libraries || [])],
+    downloads: pai.downloads,                    /* client.jar e do pai */
+    assetIndex: filho.assetIndex || pai.assetIndex,
+    assets: filho.assets || pai.assets,
+    mainClass: filho.mainClass || pai.mainClass,
+    minecraftArguments: filho.minecraftArguments || pai.minecraftArguments,
+    arguments: (filho.arguments || pai.arguments) ? {
+      game: juntarArgs(filho.arguments && filho.arguments.game, pai.arguments && pai.arguments.game),
+      jvm: juntarArgs(filho.arguments && filho.arguments.jvm, pai.arguments && pai.arguments.jvm)
+    } : undefined,
+    /* o jar continua sendo o do pai, entao guarda de quem herdou */
+    _baseJar: filho.inheritsFrom
+  });
+}
+
 export async function jsonDaVersao(versao: string, raiz: string, sinal?: AbortSignal): Promise<any> {
   const local = join(raiz, 'versions', versao, `${versao}.json`);
   if (await existe(local)) {
-    try { return JSON.parse(await readFile(local, 'utf8')); } catch { /* corrompido: rebaixa */ }
+    try { return await resolverHeranca(JSON.parse(await readFile(local, 'utf8')), raiz, sinal); }
+    catch { /* corrompido: rebaixa */ }
   }
   const man = await baixarJson(MANIFESTO, sinal);
   const entrada = man.versions.find((v: any) => v.id === versao);
-  if (!entrada) throw new Error(`versão ${versao} não existe no manifesto da Mojang`);
+  if (!entrada) {
+    /* nome de modpack (Forge/Fabric) nunca esta no manifesto: o que
+       falta e a instalacao local, e a mensagem tem que dizer isso. */
+    if (/forge|fabric|optifine|quilt|neoforge/i.test(versao)) {
+      throw new Error(`a versão ${versao} não está instalada em versions/. ` +
+                      `apague a escolha e toque de novo para reinstalar.`);
+    }
+    throw new Error(`versão ${versao} não existe no manifesto da Mojang`);
+  }
   const vjson = await baixarJson(entrada.url, sinal);
   await mkdir(dirname(local), { recursive: true });
   await writeFile(local, JSON.stringify(vjson));
   return vjson;
+}
+
+/* versoes ja instaladas no disco — e assim que Forge e Fabric aparecem,
+   porque o instalador deles cria a pasta e o launcher nao os instala. */
+export async function versoesInstaladas(raiz: string): Promise<{ id: string; herda: string | null }[]> {
+  const dir = join(raiz, 'versions');
+  const achados: { id: string; herda: string | null }[] = [];
+  try {
+    for (const d of await readdir(dir, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue;
+      const j = join(dir, d.name, d.name + '.json');
+      if (!(await existe(j))) continue;
+      try {
+        const v = JSON.parse(await readFile(j, 'utf8'));
+        achados.push({ id: d.name, herda: v.inheritsFrom || null });
+      } catch { /* json quebrado: ignora */ }
+    }
+  } catch { /* sem pasta versions */ }
+  return achados.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export async function listarVersoes(): Promise<{ id: string; type: string }[]> {
@@ -200,7 +264,7 @@ type Plano = {
   classpath: string[];
   nativesJars: { caminho: string; url: string; sha1?: string; exclude: string[] }[];
   pastaNatives: string;
-  baixaveis: { url: string; destino: string; sha1?: string; tamanho: number }[];
+  baixaveis: { url: string; destino: string; sha1?: string; tamanho: number; opcional?: boolean }[];
   indiceAssets: any;
   assetsDir: string;
 };
@@ -211,8 +275,9 @@ async function montarPlano(versao: string, raiz: string, sinal?: AbortSignal): P
   const classpath: string[] = [];
   const nativesJars: Plano['nativesJars'] = [];
 
-  /* client.jar */
-  const clientJar = join(raiz, 'versions', versao, `${versao}.jar`);
+  /* client.jar: numa versao herdada (Forge) o jar e o da versao base */
+  const idJar = vjson._baseJar || versao;
+  const clientJar = join(raiz, 'versions', idJar, `${idJar}.jar`);
   if (vjson.downloads?.client) {
     baixaveis.push({
       url: vjson.downloads.client.url, destino: clientJar,
@@ -228,6 +293,14 @@ async function montarPlano(versao: string, raiz: string, sinal?: AbortSignal): P
     if (art?.path) {
       const destino = join(raiz, 'libraries', ...art.path.split('/'));
       baixaveis.push({ url: art.url, destino, sha1: art.sha1, tamanho: art.size || 0 });
+      classpath.push(destino);
+    } else if (lib.name && !lib.natives) {
+      /* estilo Forge: so a coordenada. o instalador do Forge normalmente
+         ja deixou o arquivo em libraries/, entao isto costuma ser um no-op. */
+      const rel = caminhoMaven(lib.name);
+      const destino = join(raiz, 'libraries', ...rel.split('/'));
+      const base = lib.url || 'https://libraries.minecraft.net/';
+      baixaveis.push({ url: base.replace(/\/$/, '') + '/' + rel, destino, sha1: undefined, tamanho: 0, opcional: true });
       classpath.push(destino);
     }
 
@@ -414,8 +487,18 @@ export async function preparar(
 
   await emLotes(plano.baixaveis, PARALELO, async (b) => {
     if (sinal.aborted) throw new Error('cancelado');
-    const r = await garantir(b.url, b.destino, b.sha1, sinal);
-    prontos++; bytesProntos += r.bytes || b.tamanho;
+    try {
+      const r = await garantir(b.url, b.destino, b.sha1, sinal);
+      prontos++; bytesProntos += r.bytes || b.tamanho;
+    } catch (e) {
+      /* biblioteca do Forge que nao esta no maven publico: se o arquivo
+         ja existe (o instalador colocou), segue; senao, deixa faltar e
+         o Java reclama de forma mais util que um erro de download. */
+      if (!b.opcional || !(await existe(b.destino))) {
+        if (!b.opcional) throw e;
+      }
+      prontos++;
+    }
     avisar('REBOBINANDO A FITA');
   });
   avisar('REBOBINANDO A FITA', true);
@@ -529,6 +612,110 @@ export async function contaMojang(nick: string): Promise<{ premium: boolean; uui
   } catch {
     return vazio;                                 /* offline: trata como sem capa */
   }
+}
+
+/* ------------------------------------------------------------
+   INSTALAR O FORGE (formato legado: 1.8.9 ate 1.12.2)
+
+   O instalador do Forge e um jar (zip) com install_profile.json
+   dentro, que traz o JSON da versao pronto e o nome do universal.
+   Instalar = escrever esse JSON em versions/ e extrair o universal
+   para libraries/. O resto das bibliotecas o pipeline normal baixa.
+
+   A partir da 1.13 o instalador usa "processors" e nao da pra fazer
+   assim — nesse caso a gente avisa em vez de fingir que deu certo.
+   ------------------------------------------------------------ */
+const FORGE_MAVEN = 'https://maven.minecraftforge.net/net/minecraftforge/forge';
+/* as promocoes ficam no files., nao no maven (o maven devolve 404) */
+const FORGE_PROMOS = 'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json';
+
+export async function versaoDoForge(mc: string): Promise<string | null> {
+  try {
+    const j: any = await baixarJson(FORGE_PROMOS);
+    const p = j.promos || {};
+    return p[mc + '-recommended'] || p[mc + '-latest'] || null;
+  } catch { return null; }
+}
+
+/* baixa o instalador tentando as duas convencoes de caminho do maven:
+   versoes antigas repetem a versao do jogo no fim da pasta. */
+async function baixarInstalador(mc: string, forge: string): Promise<Buffer> {
+  const nomes = [`${mc}-${forge}`, `${mc}-${forge}-${mc}`];
+  for (const n of nomes) {
+    const url = `${FORGE_MAVEN}/${n}/forge-${n}-installer.jar`;
+    const r = await fetch(url);
+    if (r.ok) return Buffer.from(await r.arrayBuffer());
+  }
+  throw new Error(`não encontrei o instalador do Forge ${forge} para ${mc} no maven.`);
+}
+
+export async function instalarForge(
+  mcVersao: string, raiz: string, aoProgredir: (p: Progresso) => void
+): Promise<{ id: string }> {
+  const passo = (fase: string, feito: number, total: number) =>
+    aoProgredir({ fase, arquivosProntos: feito, arquivosTotal: total, bytesProntos: feito, bytesTotal: total });
+
+  passo('PROCURANDO O FORGE', 0, 4);
+  const versao = await versaoDoForge(mcVersao);
+  if (!versao) throw new Error('não há Forge para ' + mcVersao + '.');
+
+  passo('BAIXANDO O FORGE', 1, 4);
+  const jar = await baixarInstalador(mcVersao, versao);
+
+  passo('ABRINDO O INSTALADOR', 2, 4);
+  const itens = lerZip(jar);
+  const acha = (nome: string) => itens.find((i) => i.nome === nome);
+  const perfil = acha('install_profile.json');
+  if (!perfil) throw new Error('instalador sem install_profile.json.');
+  const info = JSON.parse(perfil.dados.toString('utf8'));
+
+  /* formato novo (1.12.2+): traz version.json separado e pode ter
+     "processors", que exigem rodar tarefas Java — isso a gente nao faz. */
+  const ehNovo = !info.versionInfo;
+  if (ehNovo && Array.isArray(info.processors) && info.processors.length) {
+    throw new Error('esta versão do Forge precisa do instalador oficial ' +
+                    '(usa processadores que o launcher não executa).');
+  }
+
+  let vinfo: any;
+  let coordUniversal: string | null = null;
+  let arquivoUniversal: string | null = null;
+
+  if (ehNovo) {
+    const vj = acha('version.json');
+    if (!vj) throw new Error('instalador sem version.json.');
+    vinfo = JSON.parse(vj.dados.toString('utf8'));
+    coordUniversal = info.path || null;
+  } else {
+    vinfo = info.versionInfo;
+    coordUniversal = info.install && info.install.path;
+    arquivoUniversal = info.install && info.install.filePath;
+  }
+  if (!vinfo || !vinfo.id) throw new Error('não consegui ler o JSON da versão do Forge.');
+
+  passo('INSTALANDO', 3, 4);
+  const id = vinfo.id;
+  const pastaV = join(raiz, 'versions', id);
+  await mkdir(pastaV, { recursive: true });
+  await writeFile(join(pastaV, id + '.json'), JSON.stringify(vinfo, null, 2));
+
+  /* o jar do Forge vem dentro do proprio instalador: no formato antigo
+     na raiz, no novo dentro de maven/ */
+  if (coordUniversal) {
+    const rel = caminhoMaven(coordUniversal);
+    let dados = arquivoUniversal
+      ? (acha(arquivoUniversal) || itens.find((i) => i.nome.endsWith('/' + arquivoUniversal)))
+      : null;
+    if (!dados) dados = acha('maven/' + rel) || itens.find((i) => i.nome.endsWith('/' + rel));
+    if (dados) {
+      const destino = join(raiz, 'libraries', ...rel.split('/'));
+      await mkdir(dirname(destino), { recursive: true });
+      await writeFile(destino, dados.dados);
+    }
+  }
+
+  passo('PRONTO', 4, 4);
+  return { id };
 }
 
 /* ------------------------------------------------------------

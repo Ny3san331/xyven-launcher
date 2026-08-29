@@ -27,3 +27,10 @@ temp-256.png
 
 # documento de trabalho, nao faz parte do projeto
 PROMPT-LANCAR-MINECRAFT.md
+
+# previa gerada por generate-capes.mjs --preview
+capes-preview.png
+
+# prompts de trabalho para outra IA, nao sao doc do projeto
+PROMPT-MOD-COSMETICOS.md
+PROMPT-MOD-FORGE-189.md

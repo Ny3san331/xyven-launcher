@@ -7,7 +7,10 @@ contextBridge.exposeInMainWorld('api', {
     close: () => ipcRenderer.send('window:close'),
   },
   dialog: { showOpenDialog: (opts) => ipcRenderer.invoke('dialog:open', opts) },
-  app: { getVersion: () => ipcRenderer.invoke('app:version') },
+  app: {
+    getVersion: () => ipcRenderer.invoke('app:version'),
+    atualizacao: () => ipcRenderer.invoke('app:atualizacao'),
+  },
 
   auth: {
     pedirCodigo: () => ipcRenderer.invoke('auth:pedirCodigo'),
@@ -23,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
     },
   },
   abrirLink: (url: string) => ipcRenderer.invoke('abrirLink', url),
+  cosmeticos: (dados: unknown) => ipcRenderer.invoke('cosmeticos:aplicar', dados),
   copiar: (texto: string) => ipcRenderer.invoke('copiar', texto),
 
   java: {
@@ -36,6 +40,8 @@ contextBridge.exposeInMainWorld('api', {
     matar: () => ipcRenderer.invoke('mc:matar'),
     rodando: () => ipcRenderer.invoke('mc:rodando'),
     versoes: () => ipcRenderer.invoke('mc:versoes'),
+    instaladas: (raiz: string) => ipcRenderer.invoke('mc:instaladas', raiz),
+    instalarForge: (v: string, raiz: string) => ipcRenderer.invoke('mc:instalarForge', v, raiz),
     conta: (nick: string) => ipcRenderer.invoke('mc:conta', nick),
     /* eventos: devolvem funcao pra desinscrever */
     aoProgredir: (cb: (p: unknown) => void) => {

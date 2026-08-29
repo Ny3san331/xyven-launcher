@@ -387,6 +387,12 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
 .mslogin__espera{font-size:10px;font-weight:700;letter-spacing:.14em;color:var(--muted)}
 .mslogin__erro{font-size:11.5px;line-height:1.7;color:var(--red);max-width:400px}
 
+/* linha de atualizacao em Ajustes — PROVISORIO, reusa .switch e .btn--teal
+   (azul nao existe na paleta; teal e a cor de acao do tema) */
+.switch__acao{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.switch__estado{font-size:10px;letter-spacing:.06em;color:var(--muted);text-align:right}
+.switch__estado--nova{color:var(--salmon);font-weight:700}
+
 /* conta sem capa: o quadrado leva um X, nao um placeholder colorido */
 .cape__x{position:absolute;inset:0;display:grid;place-items:center;color:var(--red)}
 .console__conta{margin-left:auto;font-size:10px;color:var(--muted);letter-spacing:.08em}
