@@ -34,3 +34,6 @@ capes-preview.png
 # prompts de trabalho para outra IA, nao sao doc do projeto
 PROMPT-MOD-COSMETICOS.md
 PROMPT-MOD-FORGE-189.md
+
+# config do ambiente de desenvolvimento, nao serve pra quem clona
+.claude/
