@@ -300,9 +300,22 @@ function createWindow() {
     catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
   });
   ipcMain.handle('mc:instaladas', (_e, raiz: string) => mc.versoesInstaladas(raiz));
-  ipcMain.handle('mc:rodando', () => mc.jogoRodando());
+  ipcMain.handle('mc:rodando', (_e, gameDir?: string) => mc.jogoRodando(gameDir));
   ipcMain.handle('mc:cancelar', () => { mc.cancelar(); return true; });
-  ipcMain.handle('mc:matar', () => { mc.matarJogo(); return true; });
+  ipcMain.handle('mc:matar', async (_e, gameDir?: string) => { await mc.matarJogo(gameDir); return true; });
+
+  /* o launcher pode ter sido fechado com o jogo aberto ("Fechar ao tocar"):
+     ao voltar, reencontra o processo e volta a seguir o log dele */
+  ipcMain.handle('mc:retomar', async (_e, gameDir: string) => {
+    const enviar = (canal: string, dado: unknown) => {
+      if (!win.isDestroyed()) win.webContents.send(canal, dado);
+    };
+    try {
+      return await mc.retomarSessao(gameDir,
+        (linha) => enviar('mc:log', linha),
+        (codigo) => enviar('mc:saiu', codigo));
+    } catch { return null; }
+  });
 
   ipcMain.handle('mc:lancar', async (_e, opts) => {
     const enviar = (canal: string, dado: unknown) => {

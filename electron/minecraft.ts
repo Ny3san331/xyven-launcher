@@ -5,7 +5,7 @@
    ============================================================ */
 import { createHash } from 'crypto';
 import { createWriteStream } from 'fs';
-import { mkdir, readFile, writeFile, rename, stat, unlink, readdir } from 'fs/promises';
+import { mkdir, readFile, writeFile, rename, stat, unlink, readdir, open, appendFile } from 'fs/promises';
 import { join, dirname, delimiter } from 'path';
 import { spawn, execFile, ChildProcess } from 'child_process';
 import { inflateRawSync } from 'zlib';
@@ -441,11 +441,11 @@ async function abrirArquivoDeLog(gameDir: string, versao: string, javaPath: stri
   const carimbo = `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getDate())}_${dd(d.getHours())}-${dd(d.getMinutes())}-${dd(d.getSeconds())}`;
   const caminho = join(pasta, `xyven-${carimbo}.log`);
 
-  const fluxo = createWriteStream(caminho, { flags: 'a' });
   const nl = String.fromCharCode(10);
-  fluxo.write(`# Xyven ${versao} — ${d.toLocaleString('pt-BR')}${nl}`);
-  fluxo.write(`# java: ${javaPath}${nl}`);
-  fluxo.write(`# args: ${args.join(' ')}${nl}${nl}`);
+  await writeFile(caminho,
+    `# Xyven ${versao} — ${d.toLocaleString('pt-BR')}${nl}`
+    + `# java: ${javaPath}${nl}`
+    + `# args: ${args.join(' ')}${nl}${nl}`, 'utf8');
 
   /* guarda so os 10 mais recentes; mexe unicamente nos nossos arquivos */
   try {
@@ -455,7 +455,87 @@ async function abrirArquivoDeLog(gameDir: string, versao: string, javaPath: stri
     }
   } catch { /* pasta recem-criada */ }
 
-  return { caminho, fluxo };
+  return caminho;
+}
+
+/* ------------------------------------------------------------
+   Sessão do jogo — sobrevive ao launcher
+
+   Com "Fechar ao tocar" o launcher sai e o Minecraft fica. Isso obriga a
+   duas mudanças: o Java escreve o log direto no arquivo (antes quem
+   escrevia era o launcher, lendo o cano — e o log parava junto com ele),
+   e o que está rodando fica gravado em sessao.json, para o launcher se
+   reencontrar com o jogo quando abrir de novo.
+   ------------------------------------------------------------ */
+
+type Sessao = { pid: number; versao: string; log: string; inicio: number };
+
+const caminhoSessao = (perfil: string) => join(perfil, 'sessao.json');
+
+async function gravarSessao(perfil: string, s: Sessao): Promise<void> {
+  await writeFile(caminhoSessao(perfil), JSON.stringify(s), 'utf8').catch(() => {});
+}
+
+async function lerSessao(perfil: string): Promise<Sessao | null> {
+  try {
+    const j = JSON.parse(await readFile(caminhoSessao(perfil), 'utf8'));
+    return j && typeof j.pid === 'number' ? j as Sessao : null;
+  } catch { return null; }
+}
+
+async function apagarSessao(perfil: string): Promise<void> {
+  await unlink(caminhoSessao(perfil)).catch(() => {});
+}
+
+function pidVivo(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+/* O PID sozinho não basta: o Windows reaproveita número de processo morto,
+   e um PID reciclado por outro programa faria o launcher jurar que o jogo
+   está aberto. Conferir que ainda é um java resolve na prática. */
+function pidEhJava(pid: number): Promise<boolean> {
+  return new Promise((res) => {
+    execFile('tasklist', ['/FI', 'PID eq ' + pid, '/FO', 'CSV', '/NH'],
+      (erro, saida) => res(!erro && /java/i.test(String(saida))));
+  });
+}
+
+async function jogoVivo(perfil: string): Promise<Sessao | null> {
+  const s = await lerSessao(perfil);
+  if (!s) return null;
+  if (!pidVivo(s.pid) || !(await pidEhJava(s.pid))) { await apagarSessao(perfil); return null; }
+  return s;
+}
+
+/* Lê o log conforme ele cresce. Substitui a leitura do cano: funciona
+   igual esteja o jogo rodando sob este launcher ou sob nenhum. */
+function seguirLog(caminho: string, aoLinha: (l: string) => void, doComeco: boolean) {
+  let pos = 0, resto = '', vivo = true, ocupado = false;
+
+  const ler = async () => {
+    if (!vivo || ocupado) return;
+    ocupado = true;
+    try {
+      const info = await stat(caminho);
+      if (info.size < pos) { pos = 0; resto = ''; }   /* arquivo rodou */
+      if (info.size > pos) {
+        const fh = await open(caminho, 'r');
+        const buf = Buffer.alloc(info.size - pos);
+        await fh.read(buf, 0, buf.length, pos);
+        await fh.close();
+        pos = info.size;
+        const partes = (resto + buf.toString('utf8')).split(/\r?\n/);
+        resto = partes.pop() || '';
+        for (const l of partes) if (l.length) aoLinha(l);
+      }
+    } catch { /* ainda nao existe */ }
+    ocupado = false;
+  };
+
+  if (!doComeco) stat(caminho).then((i) => { pos = i.size; }).catch(() => {});
+  const t = setInterval(ler, 400);
+  return () => { vivo = false; clearInterval(t); };
 }
 
 /* ------------------------------------------------------------
@@ -463,6 +543,8 @@ async function abrirArquivoDeLog(gameDir: string, versao: string, javaPath: stri
    ------------------------------------------------------------ */
 
 let processoAtual: ChildProcess | null = null;
+let pararLog: (() => void) | null = null;
+let perfilAtual = '';
 let abortoAtual: AbortController | null = null;
 
 export function cancelar(): void {
@@ -470,8 +552,12 @@ export function cancelar(): void {
   abortoAtual = null;
 }
 
-export function jogoRodando(): boolean {
-  return !!processoAtual && processoAtual.exitCode === null;
+/* Pode haver jogo aberto sem este launcher ter sido quem o abriu (ele foi
+   fechado no meio), por isso a resposta também sai do sessao.json. */
+export async function jogoRodando(gameDir?: string): Promise<boolean> {
+  if (processoAtual && processoAtual.exitCode === null) return true;
+  const perfil = gameDir ? pastaPerfil(gameDir) : perfilAtual;
+  return perfil ? !!(await jogoVivo(perfil)) : false;
 }
 
 export async function preparar(
@@ -561,11 +647,26 @@ export async function lancar(
 
   const perfil = pastaPerfil(o.gameDir);
   await mkdir(join(perfil, 'mods'), { recursive: true });   /* o Forge espera a pasta pronta */
-  const arquivo = await abrirArquivoDeLog(perfil, o.versao, o.javaPath, args);
-  aoLog('[xyven] log desta sessão: ' + arquivo.caminho);
+  const caminhoLog = await abrirArquivoDeLog(perfil, o.versao, o.javaPath, args);
+  aoLog('[xyven] log desta sessão: ' + caminhoLog);
 
-  const p = spawn(o.javaPath, args, { cwd: perfil, stdio: ['ignore', 'pipe', 'pipe'] });
+  /* O Java escreve direto no arquivo, em vez de o launcher copiar do cano.
+     É o que permite fechar o launcher com o jogo aberto sem perder o log —
+     e o que faz o log continuar completo quando ninguém está olhando.
+     Efeito colateral aceito: stdout e stderr caem no mesmo lugar, então as
+     linhas de erro deixam de vir marcadas com [err]. */
+  const fh = await open(caminhoLog, 'a');
+  const p = spawn(o.javaPath, args, {
+    cwd: perfil,
+    detached: true,                       /* nao morre junto com o launcher */
+    stdio: ['ignore', fh.fd, fh.fd],
+  });
+  p.unref();
   processoAtual = p;
+  perfilAtual = perfil;
+  if (p.pid) {
+    await gravarSessao(perfil, { pid: p.pid, versao: o.versao, log: caminhoLog, inicio: Date.now() });
+  }
 
   /* a JVM morre antes de abrir quando o heap não cabe; o texto dela não
      ajuda ninguém, então traduz uma vez por sessão. */
@@ -584,37 +685,70 @@ export async function lancar(
       + 'o de 32 bits não passa de ~1 GB por mais RAM que a máquina tenha.';
   };
 
-  const porLinha = (fluxo: NodeJS.ReadableStream, marca: string) => {
-    let resto = '';
-    fluxo.on('data', (d: Buffer) => {
-      const partes = (resto + d.toString()).split(/\r?\n/);
-      resto = partes.pop() || '';
-      partes.forEach((l) => {
-        const linha = marca + l;
-        aoLog(linha);
-        arquivo.fluxo.write(linha + String.fromCharCode(10));
-        const ajuda = explicar(l);
-        if (ajuda) { aoLog(ajuda); arquivo.fluxo.write(ajuda + String.fromCharCode(10)); }
-      });
-    });
+  pararLog?.();
+  pararLog = seguirLog(caminhoLog, (linha) => {
+    aoLog(linha);
+    const ajuda = explicar(linha);
+    if (ajuda) {
+      aoLog(ajuda);
+      appendFile(caminhoLog, ajuda + String.fromCharCode(10), 'utf8').catch(() => {});
+    }
+  }, true);
+
+  const encerrar = async (codigo: number | null, aviso: string) => {
+    /* dá um instante para o seguidor alcançar as últimas linhas */
+    setTimeout(() => { pararLog?.(); pararLog = null; }, 900);
+    await appendFile(caminhoLog, aviso + String.fromCharCode(10), 'utf8').catch(() => {});
+    await fh.close().catch(() => {});
+    await apagarSessao(perfil);
+    processoAtual = null;
+    aoSair(codigo);
   };
-  porLinha(p.stdout!, '');
-  porLinha(p.stderr!, '[err] ');
 
   p.on('error', (e) => {
-    const msg = '[erro] não consegui executar o Java: ' + e.message;
-    aoLog(msg); arquivo.fluxo.end(msg + String.fromCharCode(10));
-    aoSair(-1); processoAtual = null;
+    aoLog('[erro] não consegui executar o Java: ' + e.message);
+    void encerrar(-1, '# falhou: ' + e.message);
   });
-  p.on('exit', (codigo) => {
-    arquivo.fluxo.end('# saiu com código ' + codigo + String.fromCharCode(10));
-    processoAtual = null; aoSair(codigo);
-  });
+  p.on('exit', (codigo) => { void encerrar(codigo, '# saiu com código ' + codigo); });
 }
 
-export function matarJogo(): void {
+export async function matarJogo(gameDir?: string): Promise<void> {
   processoAtual?.kill();
   processoAtual = null;
+  const perfil = gameDir ? pastaPerfil(gameDir) : perfilAtual;
+  if (!perfil) return;
+  const s = await lerSessao(perfil);
+  if (s && pidVivo(s.pid)) { try { process.kill(s.pid); } catch { /* ja morreu */ } }
+  await apagarSessao(perfil);
+  pararLog?.(); pararLog = null;
+}
+
+/* Reencontra um jogo que ficou aberto depois de o launcher fechar. Devolve
+   null quando não há nada rodando — o caso normal. */
+export async function retomarSessao(
+  gameDir: string,
+  aoLog: (linha: string) => void,
+  aoSair: (codigo: number | null) => void
+): Promise<{ versao: string; log: string } | null> {
+  const perfil = pastaPerfil(gameDir);
+  const s = await jogoVivo(perfil);
+  if (!s) return null;
+
+  perfilAtual = perfil;
+  pararLog?.();
+  /* do começo: quem reabre o launcher quer ver o log inteiro, não só daqui pra frente */
+  pararLog = seguirLog(s.log, aoLog, true);
+
+  /* este processo não é mais nosso filho, então não há evento de saída:
+     só resta perguntar de tempos em tempos se ele ainda está de pé. */
+  const vigia = setInterval(async () => {
+    if (await jogoVivo(perfil)) return;
+    clearInterval(vigia);
+    setTimeout(() => { pararLog?.(); pararLog = null; }, 900);
+    aoSair(0);
+  }, 2000);
+
+  return { versao: s.versao, log: s.log };
 }
 
 /* ------------------------------------------------------------

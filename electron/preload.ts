@@ -49,8 +49,9 @@ contextBridge.exposeInMainWorld('api', {
   mc: {
     lancar: (opts: unknown) => ipcRenderer.invoke('mc:lancar', opts),
     cancelar: () => ipcRenderer.invoke('mc:cancelar'),
-    matar: () => ipcRenderer.invoke('mc:matar'),
-    rodando: () => ipcRenderer.invoke('mc:rodando'),
+    matar: (gameDir?: string) => ipcRenderer.invoke('mc:matar', gameDir),
+    rodando: (gameDir?: string) => ipcRenderer.invoke('mc:rodando', gameDir),
+    retomar: (gameDir: string) => ipcRenderer.invoke('mc:retomar', gameDir),
     versoes: () => ipcRenderer.invoke('mc:versoes'),
     instaladas: (raiz: string) => ipcRenderer.invoke('mc:instaladas', raiz),
     instalarForge: (v: string, raiz: string) => ipcRenderer.invoke('mc:instalarForge', v, raiz),

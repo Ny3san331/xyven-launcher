@@ -390,10 +390,15 @@ function renderMemory() {
   $('#memMax').textContent = max + ' MB';
   const dica = $('#memHint');
   if (dica) {
+    /* a frase antiga dava os dois numeros soltos ("a maquina tem 7.7 GB;
+       o teto deixa 2 GB") e parecia contradicao: 7.7 menos 2 nao e o teto
+       obvio, porque ainda ha o arredondamento pra baixo de 256 em 256.
+       Melhor mostrar a subtracao inteira, com o resultado no fim. */
     dica.textContent = state.memBits === 32
       ? 'este Java é de 32 bits: ele não passa de ~1 GB, por mais RAM que a máquina tenha.'
-      : (state.memTotal ? 'a máquina tem ' + (state.memTotal / 1024).toFixed(1)
-          + ' GB; o teto deixa 2 GB para o sistema.' : '');
+      : (state.memTotal ? 'dos ' + (state.memTotal / 1024).toFixed(1)
+          + ' GB da máquina, 2 GB ficam para o sistema — por isso o teto é '
+          + (max / 1024).toFixed(1) + ' GB.' : '');
   }
   renderStats();
 }
@@ -956,7 +961,7 @@ $('#playBtn').onclick = async () => {
   if (jogoAbrindo) return;
   if (!exigirConta('Entrar para jogar')) return;
   if (jogoAberto) {                     /* segundo clique: encerra o jogo */
-    if (temApi()) window.api.mc.matar();
+    if (temApi()) window.api.mc.matar(state.dir);
     return;
   }
   if (!temApi()) { alert('a inicialização só funciona no app; no navegador não há acesso ao disco.'); return; }
@@ -1031,7 +1036,9 @@ $('#playBtn').onclick = async () => {
   marcarTocando(true);
   mostrarProgresso(false);
   const fechar = CONFIG.toggles.launcher.find((t) => t.key === 'close');
-  if (fechar && fechar.on) window.api.window.minimize();
+  /* fecha de verdade: o jogo foi iniciado destacado e segue de pé sozinho.
+     ao reabrir, o launcher reencontra o processo pelo sessao.json. */
+  if (fechar && fechar.on) window.api.window.close();
 };
 
 $('#consoleBtn').onclick = () => { open($('#consoleOverlay')); pintarConsole(); };
@@ -1048,7 +1055,7 @@ $('#consoleCopiar').onclick = async () => {
 if (temApi()) {
   setInterval(async () => {
     try {
-      const rodando = await window.api.mc.rodando();
+      const rodando = await window.api.mc.rodando(state.dir);
       if (rodando !== jogoAberto) marcarTocando(rodando);
     } catch (e) { /* janela fechando */ }
   }, 1500);
@@ -1160,7 +1167,23 @@ $('#browseBtn').onclick = async () => {
 };
 
 /* boot (renderNews fica no boot do fórum — depende dos posts) */
-definirPastaJogo().then(() => { carregarVersoes(); });
+definirPastaJogo().then(() => { carregarVersoes(); retomarJogo(); });
+
+/* O jogo pode estar aberto sem o launcher: "Fechar ao tocar" o encerra e
+   deixa o Minecraft de pé. Ao voltar, em vez de mostrar TOCAR como se nada
+   houvesse, reencontra o processo e volta a acompanhar o log dele. */
+async function retomarJogo() {
+  if (!temApi() || !window.api.mc.retomar || !state.dir) return;
+  let sessao = null;
+  try { sessao = await window.api.mc.retomar(state.dir); } catch (e) { return; }
+  if (!sessao) return;                       /* o normal: nada rodando */
+
+  if (sessao.versao) state.version = sessao.versao;
+  logDoJogo.length = 0;
+  logDoJogo.push('[xyven] o Minecraft já estava aberto — retomando o log desta sessão.');
+  marcarTocando(true);
+  renderVersions(); renderStats();
+}
 restaurarToggles();
 renderStats(); renderVersions(); renderJava(); renderToggles(); renderAccounts(); renderMemory();
 sincronizarAutostart();
