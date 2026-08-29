@@ -1847,11 +1847,10 @@ skinView = makeSkinDrag('#skinStage', '#skinBody');
 /* capas do proprio launcher: nao dependem da Mojang, entao valem
    tambem para conta offline. ARTE PROVISORIA (design pendente). */
 const CAPAS_XYVEN = [
-  { id: 'caveira',  name: 'CAVEIRA',   arquivo: 'caveira.png' },
-  { id: 'xyven',    name: 'XYVEN',     arquivo: 'xyven.png' },
-  { id: 'fita',     name: 'FITA',      arquivo: 'fita.png' },
-  { id: 'lado-b',   name: 'LADO B',    arquivo: 'lado-b.png' },
-  { id: 'fundador', name: 'FUNDADOR',  arquivo: 'fundador.png' }
+  { id: 'caveira',   name: 'CAVEIRA',   arquivo: 'caveira.png' },
+  { id: 'moonlight', name: 'MOONLIGHT', arquivo: 'moonlight.png' },
+  { id: 'broken',    name: 'BROKEN',    arquivo: 'broken.png' },
+  { id: 'enderman',  name: 'ENDERMAN',  arquivo: 'enderman.png' }
 ].map((c) => Object.assign({}, c, { url: 'capes/' + c.arquivo, origem: 'launcher' }));
 
 let capasDaConta = [];        /* [{ id, name, url }] — vem da Mojang */
