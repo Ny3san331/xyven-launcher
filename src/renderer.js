@@ -179,12 +179,46 @@ function renderVersions() {
     </button>`).join('');
 }
 
+/* seletor recolhido: mostra só o Java em uso e abre a lista ao clicar.
+   A chave é o CAMINHO, não o nome — há máquinas com dois "Java 21". */
+let javaAberto = false;
+
+function javaEmUso() {
+  return CONFIG.javas.find((j) => j.path === state.javaPath)
+      || CONFIG.javas.find((j) => j.name === state.java)
+      || CONFIG.javas[0] || null;
+}
+
 function renderJava() {
-  $('#javaList').innerHTML = CONFIG.javas.map(j => `
-    <button class="java ${j.name === state.java ? 'is-active' : ''}" data-java="${j.name}">
-      <span><span class="java__name">${j.name}</span><br><span class="java__path">${j.path}</span></span>
-      <span class="tag" style="background:${j.name === state.java ? 'var(--teal)' : 'var(--sand)'}">${j.name === state.java ? 'EM USO' : j.tag}</span>
+  const atual = javaEmUso();
+  const seta = '<svg class="jsel__seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>';
+
+  if (!CONFIG.javas.length) {
+    $('#javaList').innerHTML = '<div class="empty">nenhum Java encontrado nesta máquina.</div>';
+    return;
+  }
+
+  const opcoes = CONFIG.javas.map((j) => `
+    <button class="jsel__opt ${j.path === (atual && atual.path) ? 'is-on' : ''}" data-java="${esc(j.path)}">
+      <span class="jsel__meio">
+        <span class="jsel__nome">${esc(j.name)}</span>
+        <span class="jsel__caminho">${esc(j.path)}</span>
+      </span>
+      <span class="tag" style="background:${j.path === (atual && atual.path) ? 'var(--teal)' : 'var(--sand)'}">${j.path === (atual && atual.path) ? 'EM USO' : esc(j.tag)}</span>
     </button>`).join('');
+
+  $('#javaList').innerHTML = `
+    <div class="jsel ${javaAberto ? 'is-aberto' : ''}" id="jsel">
+      <button class="jsel__botao" id="jselBotao">
+        <span class="jsel__meio">
+          <span class="jsel__nome">${atual ? esc(atual.name) : 'escolher'}</span>
+          <span class="jsel__caminho">${atual ? esc(atual.path) : ''}</span>
+        </span>
+        <span class="tag" style="background:var(--teal)">EM USO</span>
+        ${seta}
+      </button>
+      ${javaAberto ? `<div class="jsel__lista">${opcoes}</div>` : ''}
+    </div>`;
 }
 
 function renderToggles() {
@@ -510,8 +544,18 @@ $('#panel-toggles').addEventListener('click', (e) => {
   if (item.key === 'theme') applyTheme(item.on);
 });
 $('#javaList').addEventListener('click', (e) => {
+  if (e.target.closest('#jselBotao')) { javaAberto = !javaAberto; renderJava(); return; }
   const b = e.target.closest('[data-java]'); if (!b) return;
-  state.java = b.dataset.java; renderJava(); renderStats();
+  const escolhido = CONFIG.javas.find((j) => j.path === b.dataset.java);
+  if (escolhido) { state.javaPath = escolhido.path; state.java = escolhido.name; }
+  javaAberto = false;
+  renderJava(); renderStats();
+});
+
+/* clicar fora fecha a lista */
+document.addEventListener('click', (e) => {
+  if (!javaAberto || e.target.closest('#jsel')) return;
+  javaAberto = false; renderJava();
 });
 $('#dirInput').addEventListener('change', (e) => { state.dir = e.target.value; salvarPasta(); carregarVersoes(); });
 $('#browseBtn').onclick = () => { /* AQUI: abrir o seletor de pasta do Electron/Tauri */ };
@@ -781,7 +825,7 @@ $('#playBtn').onclick = async () => {
   }
   if (!temApi()) { alert('a inicialização só funciona no app; no navegador não há acesso ao disco.'); return; }
 
-  const java = CONFIG.javas.find((j) => j.name === state.java);
+  const java = javaEmUso();
   if (!java || !java.path || java.path.startsWith('...')) {
     alert('escolha um Java em Ajustes › Jogo antes de tocar.');
     return;
@@ -937,7 +981,7 @@ async function carregarJava() {
       tag: j.maior === exigido ? 'INDICADO' : String(j.versao)
     }));
     const bom = CONFIG.javas.find((j) => j.maior === exigido) || CONFIG.javas[CONFIG.javas.length - 1];
-    state.java = bom.name;
+    state.java = bom.name; state.javaPath = bom.path;
     renderJava(); renderStats();
   } catch (e) { console.warn('não consegui detectar o Java', e); }
 }
@@ -1226,7 +1270,9 @@ let postFilter = 'TODAS';
 let editingId = null;
 
 const savePosts = () => { try { localStorage.setItem('xyven.posts', JSON.stringify(posts)); } catch (e) { /* sem storage */ } };
-const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/* declaracao de funcao (nao const): e usada bem antes deste ponto,
+   no boot, e function e hoisted */
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 function renderFilters() {
   const all = ['TODAS'].concat(POST_TAGS);

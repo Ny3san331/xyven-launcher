@@ -393,6 +393,37 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
 .switch__estado{font-size:10px;letter-spacing:.06em;color:var(--muted);text-align:right}
 .switch__estado--nova{color:var(--salmon);font-weight:700}
 
+/* ============================================================
+   SELETOR DE JAVA RECOLHIDO — PROVISORIO.
+   A tela de Ajustes veio do design com lista de cards; isto e um
+   colapsado autorizado pelo dono pra sobrar espaco. Mesmas regras:
+   canto reto, contorno 3px, sombra dura, mostarda no selecionado.
+   ============================================================ */
+.jsel{position:relative}
+.jsel__botao{width:100%;display:flex;align-items:center;gap:12px;padding:12px 14px;
+  border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:var(--shadow);
+  cursor:pointer;text-align:left;transition:background .12s}
+.jsel__botao:hover{background:var(--mustard)}
+.jsel__botao:active{box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
+.jsel.is-aberto .jsel__botao{background:var(--mustard);box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
+.jsel__nome{font-family:var(--font-display);font-size:15px;line-height:1.2}
+.jsel__caminho{display:block;font-size:10.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jsel__meio{flex:1;min-width:0}
+.jsel__seta{flex:none;transition:none}
+.jsel.is-aberto .jsel__seta{transform:rotate(180deg)}
+
+.jsel__lista{position:absolute;left:0;right:4px;top:100%;margin-top:6px;z-index:5;
+  border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:var(--shadow-lg);
+  max-height:230px;overflow-y:auto}
+.jsel__opt{width:100%;display:flex;align-items:center;gap:10px;padding:11px 14px;
+  border:0;border-bottom:2px dashed #cbb28a;background:none;cursor:pointer;text-align:left;
+  transition:background .12s}
+.jsel__opt:last-child{border-bottom:0}
+.jsel__opt:hover{background:var(--mustard);color:var(--on-accent,#33261c)}
+.jsel__opt.is-on{background:var(--mustard);color:var(--on-accent,#33261c)}
+.jsel__opt:hover .jsel__caminho{color:#5b4632}
+
 /* conta sem capa: o quadrado leva um X, nao um placeholder colorido */
 .cape__x{position:absolute;inset:0;display:grid;place-items:center;color:var(--red)}
 .console__conta{margin-left:auto;font-size:10px;color:var(--muted);letter-spacing:.08em}
