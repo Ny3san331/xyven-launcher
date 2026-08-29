@@ -1,0 +1,35 @@
+{
+  "appId": "com.xyven.launcher",
+  "productName": "Xyven",
+  "copyright": "Copyright © 2024 Xyven",
+  "directories": {
+    "output": "dist",
+    "buildResources": "public"
+  },
+  "files": [
+    ".vite/build/**/*",
+    ".vite/renderer/main_window/**/*"
+  ],
+  "extraFiles": [
+    {
+      "from": ".vite/renderer/main_window",
+      "to": "renderer/main_window",
+      "filter": ["**/*"]
+    }
+  ],
+  "win": {
+    "target": "nsis",
+    "icon": "public/icon.ico",
+    "requestedExecutionLevel": "asInvoker"
+  },
+  "nsis": {
+    "installerIcon": "public/icon.ico",
+    "uninstallerIcon": "public/icon.ico",
+    "installerHeaderIcon": "public/icon.ico",
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Xyven"
+  }
+}

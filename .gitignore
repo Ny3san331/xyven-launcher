@@ -1,0 +1,29 @@
+# dependências e saídas de build
+node_modules/
+dist/
+out/
+.vite/
+
+# logs e temporários
+*.log
+*.local
+*.tsbuildinfo
+.DS_Store
+.env
+
+# binários soltos — menos os que o app precisa pra rodar
+*.ico
+*.woff2
+!public/icon.ico
+!public/fonts/*.woff2
+
+# sobras da extração de fontes (não usadas pelo app)
+alfa.css
+alfa-bold.css
+fonts.css
+fonts-woff2.css
+space-mono.css
+temp-256.png
+
+# documento de trabalho, nao faz parte do projeto
+PROMPT-LANCAR-MINECRAFT.md

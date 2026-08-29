@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Xyven — Launcher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+
+<div class="app">
+
+  <!-- ============ HEADER ============ -->
+  <header>
+    <div class="brand">
+      <div class="brand__mark">
+        <svg width="24" height="24" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"><circle cx="50" cy="50" r="41"></circle><circle cx="50" cy="50" r="20"></circle><circle cx="50" cy="50" r="7" fill="currentColor" stroke="none"></circle></svg>
+      </div>
+      <div class="brand__name">XYVEN</div>
+      <div class="brand__sticker">SIDE&nbsp;A</div>
+    </div>
+
+    <div class="header__right">
+      <div class="bell">
+        <button class="btn btn--icon" id="bellBtn" title="Notificações">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg>
+        </button>
+        <span class="bell__dot" id="bellDot" hidden></span>
+      </div>
+      <button class="btn" id="accountChip" style="padding:0 12px 0 5px">
+        <span class="avatar" style="width:28px;height:28px;font-size:13px" id="chipInitial" data-skin="Ny3san">N</span>
+        <span id="chipName">Ny3san</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <button class="btn btn--pro">★ OBTER PRO</button>
+    </div>
+    <div class="header__controls">
+      <button class="win-btn" id="btnMin" aria-label="Minimizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <button class="win-btn" id="btnMax" aria-label="Maximizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="0"/></svg></button>
+      <button class="win-btn win-btn--close" id="btnClose" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+    </div>
+  </header>
+
+  <div class="body">
+
+    <!-- ============ RAIL ============ -->
+    <nav class="rail" id="rail">
+      <!-- data-nav = id da seção; a classe is-active marca o atual -->
+      <button class="rail__btn is-active" data-nav="home" title="Início"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1v-8.8Z"/></svg></button>
+      <button class="rail__btn" data-nav="news" title="Novidades"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14H5a1 1 0 0 1-1-1V5Z"></path><path d="M17 9h3v9a1 1 0 0 1-1 1h-2"></path><path d="M7 8h7M7 12h7M7 16h4"></path></svg></button>
+      <button class="rail__btn" data-nav="cosmetics" title="Cosméticos"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3"/></svg></button>
+      <button class="rail__btn rail__btn--dev dev-only" data-nav="dev" title="Dev"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"></path></svg></button>
+      <button class="rail__btn" id="openEditor" title="Editor de tema" hidden><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5l4 4L8 20H4v-4L16.5 3.5Z"></path><path d="M14 6l4 4"></path></svg></button>
+      <div class="rail__spacer"></div>
+      <button class="rail__btn" id="openSettings" title="Configurações"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"/></svg></button>
+    </nav>
+
+    <!-- ============ CONTEÚDO ============ -->
+    <main>
+      <div class="wrap" id="screen-home">
+
+        <!-- HERO: play + seletor de versão -->
+        <section class="card hero">
+          <div class="hero__left">
+            <div class="hero__eyebrow"><b>FAIXA 01</b><span style="color:var(--muted)">MINECRAFT LAUNCHER</span></div>
+            <h1>Xyven</h1>
+            <p>Feito 100% por brasileiros. Sem pressa, sem lag — só você, seus amigos e um mundo pra cavar até o sol nascer.</p>
+
+            <div class="hero__actions" id="heroIdle">
+              <button class="btn btn--play" id="playBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4l7 8-7 8z"/></svg>
+                TOCAR
+              </button>
+              <button class="btn btn--icon" id="consoleBtn" title="Console do jogo" hidden>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"></rect><path d="M7 9l3 3-3 3M13 15h4"></path></svg>
+              </button>
+              <button class="btn btn--tape" id="versionBtn">
+                <span class="tape"><small>FITA</small><b id="versionLabel">1.8.9</b></span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+            </div>
+
+            <div class="progress" id="heroProgress" hidden>
+              <div class="progress__top">
+                <span id="progressLabel">REBOBINANDO A FITA</span>
+                <span class="progress__pct" id="progressPct">0%</span>
+              </div>
+              <div class="progress__track"><div class="progress__fill" id="progressFill"></div></div>
+              <button class="progress__stop" id="cancelBtn">■ PARAR A FITA</button>
+            </div>
+          </div>
+
+          <div class="hero__right">
+            <div class="polaroid">
+              <div class="polaroid__img ph">PRINT DO JOGO</div>
+              <div class="polaroid__cap">SALVO EM 27/08 — 15:52</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- STATUS -->
+        <section class="grid3">
+          <div class="card stat"><span class="stat__label">FITA</span><span class="stat__value" id="statVersion">1.8.9</span><span class="stat__note">perfil padrão</span></div>
+          <div class="card stat"><span class="stat__label">RAM</span><span class="stat__value" id="statMem">2048 MB</span><span class="stat__note">alocada pra JVM</span></div>
+          <div class="card stat"><span class="stat__label">JAVA</span><span class="stat__value" id="statJava">Java 17</span><span class="stat__note">runtime detectado</span></div>
+        </section>
+
+        <!-- NOVIDADES -->
+        <section style="display:flex;flex-direction:column;gap:16px">
+          <div class="section__head"><h2>Lado B — Novidades</h2><a href="#" id="seeAllNews">VER TUDO</a></div>
+          <div class="grid3" id="newsGrid"></div>
+        </section>
+
+      </div>
+
+      <!-- ============ TELA: PERFIL ============ -->
+      <div class="wrap" id="screen-profile" hidden>
+        <div class="section__head">
+          <h2>Perfil</h2>
+          <span class="skin__hint" id="profSince">na fita desde —</span>
+        </div>
+
+        <div class="profile">
+          <div class="skin">
+            <div class="skin__stage" id="skinStage">
+              <div class="skin__body" id="skinBody"></div>
+            </div>
+            <div class="skin__foot">
+              <span>SKIN</span>
+              <div style="display:flex;align-items:center;gap:12px">
+                <span class="skin__hint">arraste pra girar</span>
+                <button class="btn" id="openSkinEditor" style="height:34px;padding:0 14px;font-size:10.5px">EDITAR</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="prof__col">
+            <div class="prof__head">
+              <span class="avatar" id="profAvatar" style="width:64px;height:64px;font-size:28px;border-width:3px">N</span>
+              <div style="min-width:0">
+                <div class="prof__name" id="profName">Ny3san</div>
+                <div class="prof__nick" id="profNick">microsoft · premium</div>
+                <div class="badges" id="profBadges"></div>
+              </div>
+            </div>
+
+            <div class="hours" id="profHours"></div>
+
+            <div class="servers">
+              <div class="servers__head">SERVIDORES MAIS TOCADOS</div>
+              <div id="serverList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ============ TELA: NOVIDADES (fórum) ============ -->
+      <div class="wrap" id="screen-news" hidden>
+        <div class="section__head">
+          <h2>Novidades</h2>
+          <button class="btn btn--teal" id="newPostBtn">+ NOVA POSTAGEM</button>
+        </div>
+
+        <div class="filters" id="postFilters"></div>
+
+        <div class="feed" id="feed"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ MENU DE CONTA ============ -->
+<div class="menu" id="accountMenu" hidden>
+  <div class="menu__head">
+    <span class="avatar" style="width:44px;height:44px;font-size:20px;border-width:3px" id="menuInitial" data-skin="Ny3san">N</span>
+    <div>
+      <div class="menu__name" id="menuName">Ny3san</div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--muted)">CONTA ATIVA</div>
+    </div>
+  </div>
+  <button class="menu__item" data-open="profile"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21c0-3.3 3.6-5 8-5s8 1.7 8 5M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg><span><b>Meu perfil</b><br><small>skin, horas e servidores</small></span></button>
+  <button class="menu__item" data-open="switch"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M7 8h12l-3-3M17 16H5l3 3"/></svg><span><b>Trocar de conta</b><br><small>entrar com outra conta salva</small></span></button>
+  <button class="menu__item" data-open="add"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span><b>Adicionar conta</b><br><small>nova conta Microsoft</small></span></button>
+  <button class="menu__item menu__item--danger" id="removerConta"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg><span><b>Remover conta</b><br><small>sair desta conta no launcher</small></span></button>
+</div>
+
+<!-- ============ MODAL: VERSÕES ============ -->
+<div class="overlay" id="versionOverlay" hidden data-close>
+  <div class="modal modal--versions">
+    <div class="modal__head modal__head--teal"><h3>Escolher a fita</h3><button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="versions" id="versionGrid"></div>
+  </div>
+</div>
+
+<!-- ============ MODAL: CONFIGURAÇÕES ============ -->
+<div class="overlay" id="settingsOverlay" hidden data-close>
+  <div class="modal settings">
+    <aside class="settings__side">
+      <div class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7a6448" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input placeholder="buscar...">
+      </div>
+      <div class="tabs" id="tabs">
+        <button class="tab is-active" data-tab="jogo">JOGO</button>
+        <button class="tab" data-tab="launcher">LAUNCHER</button>
+        <button class="tab" data-tab="discord">DISCORD</button>
+      </div>
+      <div class="note">MAIS MEMÓRIA NÃO É MAIS FPS. VAI COM CALMA.</div>
+    </aside>
+
+    <div class="settings__main">
+      <div class="modal__head modal__head--mustard"><h3 id="settingsTitle">Ajustes do jogo</h3><button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+
+      <div class="settings__body">
+        <!-- PAINEL: JOGO -->
+        <div id="panel-jogo" style="display:flex;flex-direction:column;gap:26px">
+          <div class="mem">
+            <div class="mem__head">MEMÓRIA ALOCADA <span>quanto de RAM a JVM pode usar</span></div>
+            <div class="mem__body">
+              <div class="mem__value"><span class="mem__mb" id="memMb">2048 MB</span><span class="mem__gb" id="memGb">≈ 2.00 GB</span></div>
+              <div class="fader" id="fader">
+                <div class="fader__track"><div class="fader__fill" id="faderFill"></div><div class="fader__knob" id="faderKnob"></div></div>
+              </div>
+              <div class="mem__minmax"><span id="memMin">1024 MB</span><span id="memMax">7168 MB</span></div>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field__label">DIRETÓRIO DO MINECRAFT</span>
+            <div style="display:flex;gap:12px">
+              <input class="input" id="dirInput" value="C:\Users\Usuario\AppData\Roaming\.minecraft">
+              <button class="btn btn--teal" style="height:48px;padding:0 20px" id="browseBtn">PROCURAR</button>
+            </div>
+            <span class="field__hint">saves, mods, resource packs e tudo mais moram aqui.</span>
+          </div>
+
+          <div class="field">
+            <span class="field__label">VERSÃO DO JAVA</span>
+            <div style="display:flex;flex-direction:column;gap:10px" id="javaList"></div>
+          </div>
+        </div>
+
+        <!-- PAINEL: LAUNCHER / DISCORD (toggles) -->
+        <div id="panel-toggles" style="display:flex;flex-direction:column;gap:14px" hidden></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: TROCAR DE CONTA ============ -->
+<div class="overlay" id="switchOverlay" hidden data-close>
+  <div class="modal" style="width:470px">
+    <div class="modal__head modal__head--salmon"><h3>Trocar de conta</h3><button class="x" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="accounts" id="accountList"></div>
+  </div>
+</div>
+
+<!-- ============ MODAL: ADICIONAR CONTA ============ -->
+<div class="overlay" id="addOverlay" hidden data-close>
+  <div class="modal" style="width:440px">
+    <div class="modal__head modal__head--teal">
+      <h3>Adicionar conta</h3>
+      <button class="x" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="addkind">
+      <button class="addkind__opt" id="addOriginal" style="background:var(--mustard)">
+        <span class="addkind__mark" style="background:var(--paper)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+        </span>
+        <span>
+          <span class="addkind__name">Conta original</span><br>
+          <span class="addkind__desc">entrar pela Microsoft · abre no navegador</span>
+        </span>
+      </button>
+      <button class="addkind__opt" id="addOffline">
+        <span class="addkind__mark" style="background:var(--sand-dark)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21c0-3.3 3.6-5 8-5s8 1.7 8 5M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg>
+        </span>
+        <span>
+          <span class="addkind__name">Conta pirata</span><br>
+          <span class="addkind__desc">só o nick · servidores offline</span>
+        </span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: CONTA PIRATA ============ -->
+<div class="overlay" id="offlineOverlay" hidden data-close>
+  <div class="modal" style="width:440px">
+    <div class="modal__head modal__head--salmon">
+      <h3>Conta pirata</h3>
+      <button class="x" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="addoffline">
+      <div class="addoffline__row">
+        <span class="avatar" id="offlineAvatar" style="width:76px;height:76px;font-size:32px;border-width:3px">?</span>
+        <input type="text" id="offlineNick" placeholder="seu nick" maxlength="16" autocomplete="off">
+      </div>
+      <p class="addoffline__warn" id="offlineWarn">de 3 a 16 caracteres. letras, números e _ apenas. serve só em servidor offline.</p>
+    </div>
+    <div class="form__foot">
+      <button class="btn" data-close>CANCELAR</button>
+      <button class="btn btn--teal" id="offlineSave">ADICIONAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: LOGIN MICROSOFT (provisorio) ============ -->
+<div class="overlay" id="msOverlay" hidden data-close>
+  <div class="modal" style="width:min(520px,100%)">
+    <div class="modal__head modal__head--mustard">
+      <h3>Entrar com a Microsoft</h3>
+      <button class="x" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="mslogin">
+      <p class="mslogin__passo" id="msPasso">pedindo o código à Microsoft...</p>
+      <div class="mslogin__codigo" id="msCodigo" hidden>----–----</div>
+      <button class="btn btn--teal" id="msAbrir" hidden>ABRIR O SITE DA MICROSOFT</button>
+      <span class="mslogin__espera" id="msEspera" hidden>ESPERANDO VOCÊ ENTRAR...</span>
+      <p class="mslogin__erro" id="msErro" hidden></p>
+    </div>
+    <div class="form__foot">
+      <button class="btn" id="msCancelar">CANCELAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: CONSOLE DO JOGO (provisorio) ============ -->
+<div class="overlay" id="consoleOverlay" hidden data-close>
+  <div class="modal" style="width:min(860px,100%)">
+    <div class="modal__head modal__head--teal">
+      <h3>Console</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="console">
+      <div class="console__bar">
+        <span class="console__live"><span class="console__dot"></span><span id="consoleEstado">AO VIVO</span></span>
+        <button class="btn" id="consoleCopiar" style="height:32px;font-size:10px;padding:0 12px">COPIAR</button>
+        <button class="btn" id="consoleLimpar" style="height:32px;font-size:10px;padding:0 12px">LIMPAR</button>
+        <span class="console__conta" id="consoleConta">0 linhas</span>
+      </div>
+      <pre class="console__out" id="consoleOut"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ============ NOTIFICAÇÕES ============ -->
+<div class="notif" id="notifPanel" hidden>
+  <div class="notif__head">
+    <span>NOVIDADES PRA VOCÊ</span>
+    <button class="link-btn" id="notifClear">limpar</button>
+  </div>
+  <div class="notif__list" id="notifList"></div>
+</div>
+
+<!-- ============ MODAL: EDITOR DE SKIN ============ -->
+<div class="overlay" id="skinOverlay" hidden data-close>
+  <div class="modal" style="width:880px">
+    <div class="modal__head modal__head--mustard">
+      <h3>Editar skin</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+
+    <div class="skined">
+      <div class="skined__view">
+        <div class="skined__stage" id="skinEdStage">
+          <div class="skin__body" id="skinEdBody"></div>
+        </div>
+        <div class="skined__cur">
+          <span class="skined__curname" id="skinEdName">—</span>
+          <span class="skined__curmeta" id="skinEdMeta">prévia · arraste pra girar</span>
+          <div class="model" style="margin-top:8px">
+            <button class="model__btn" data-model="classic">PADRÃO</button>
+            <button class="model__btn" data-model="slim">SLIM</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="skined__side">
+        <div class="skined__group">
+          <div class="skined__title"><span>CAPAS</span><span class="skin__hint" id="capeCount">—</span></div>
+          <div class="capes" id="capeList"></div>
+        </div>
+
+        <div class="skined__group">
+          <div class="skined__title"><span>SKINS SALVAS</span><span class="skin__hint" id="skinCount">—</span></div>
+          <div class="skinlist" id="skinList"></div>
+          <div class="skined__add">
+            <input type="text" id="skinNewNick" placeholder="nick pra puxar a skin" maxlength="16">
+            <button class="btn btn--teal" id="skinAdd" style="height:40px">SALVAR</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form__foot" style="padding-top:16px;border-top:var(--bw) solid var(--ink)">
+      <button class="btn" data-close>CANCELAR</button>
+      <button class="btn btn--teal" id="skinApply">USAR ESTA SKIN</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: MENU DEV ============ -->
+<div class="overlay" id="devOverlay" hidden data-close>
+  <div class="modal" style="width:720px">
+    <div class="modal__head" style="background:var(--teal);color:#f4e7ca">
+      <h3>Dev</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="dev">
+      <div class="dev__warn">painel de cargos. define o que cada conta é no client — não mexe em skin, horas ou servidores.</div>
+
+      <div class="search" style="margin:0">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="devSearch" placeholder="buscar por nick...">
+      </div>
+
+      <div class="members" id="devMembers"></div>
+
+      <div class="dev__add">
+        <input type="text" id="devNewNick" placeholder="nick da conta" maxlength="16">
+        <button class="btn btn--teal" id="devAdd">ADICIONAR</button>
+      </div>
+    </div>
+    <div class="form__foot">
+      <button class="btn" id="devReset">RESTAURAR</button>
+      <button class="btn btn--teal" data-close>FECHAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: LER POSTAGEM ============ -->
+<div class="overlay" id="readOverlay" hidden data-close>
+  <div class="modal" style="width:660px">
+    <div class="modal__head modal__head--mustard">
+      <h3 id="readTitle">Postagem</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="read">
+      <div class="read__meta">
+        <span class="avatar" id="readAvatar" style="width:34px;height:34px;font-size:15px;border-width:3px">N</span>
+        <span class="tag" id="readTag">ETIQUETA</span>
+        <span class="post__pin" id="readPin" hidden>FIXADO</span>
+        <span class="post__meta" id="readMeta">autor · data</span>
+      </div>
+      <p class="read__body selectable" id="readBody"></p>
+    </div>
+    <div class="form__foot" style="padding-top:16px;border-top:var(--bw) solid var(--ink)">
+      <button class="btn" id="readEdit">EDITAR</button>
+      <button class="btn btn--teal" data-close>FECHAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: NOVA POSTAGEM ============ -->
+<div class="overlay" id="postOverlay" hidden data-close>
+  <div class="modal" style="width:620px">
+    <div class="modal__head modal__head--teal">
+      <h3 id="postModalTitle">Nova postagem</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="form">
+      <label>TÍTULO<input type="text" id="postTitle" placeholder="o que aconteceu?" maxlength="70"></label>
+      <div class="form__row">
+        <label>ETIQUETA<select id="postTag"></select></label>
+        <label class="form__check"><input type="checkbox" id="postPin"> fixar no topo</label>
+      </div>
+      <label>TEXTO<textarea id="postBody" placeholder="escreva em minúsculas, seco e curto. duas linhas já dizem muito."></textarea></label>
+    </div>
+    <div class="form__foot">
+      <button class="btn" data-close>CANCELAR</button>
+      <button class="btn btn--teal" id="postSave">PUBLICAR</button>
+    </div>
+  </div>
+</div>
+<aside class="editor" id="editorPanel" hidden>
+  <div class="editor__head">
+    <h3>Editor</h3>
+    <button class="x" id="closeEditor"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="editor__body" id="editorBody"></div>
+  <div class="editor__foot">
+    <button class="btn" id="editorReset">RESTAURAR</button>
+    <button class="btn btn--teal" id="editorSave">SALVAR</button>
+  </div>
+</aside>
+
+
+<script type="module" src="renderer.js"></script>
+</body>
+</html>
