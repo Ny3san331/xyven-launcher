@@ -1989,7 +1989,10 @@ async function gravarCosmeticos() {
       nick: state.account,
       uuid: contaMS && contaMS.nick === state.account ? contaMS.uuid : null,
       slim: !!profile.slim,
-      capa: capa ? { id: capa.id, origem: capa.origem || 'mojang', arquivo: capa.arquivo || null, url: capa.url } : null
+      capa: capa ? { id: capa.id, origem: capa.origem || 'mojang', arquivo: capa.arquivo || null, url: capa.url } : null,
+      /* o catalogo inteiro: sem isto o launcher so copiava a capa escolhida,
+         e o menu do mod dentro do jogo listava uma opcao so */
+      catalogo: CAPAS_XYVEN.map((c) => ({ id: c.id, name: c.name, arquivo: c.arquivo }))
     });
   } catch (e) { console.warn('não consegui gravar os cosméticos', e); }
 }

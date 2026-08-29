@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
-import { copyFile, mkdir, stat, writeFile, unlink } from 'fs/promises';
+import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { createHash } from 'crypto';
 import { spawn } from 'child_process';
@@ -260,12 +260,45 @@ function createWindow() {
       const destino = mc.pastaPerfil(dados.gameDir);
       await mkdir(join(destino, 'capes'), { recursive: true });
 
+      const pastaCapas = join(destino, 'capes');
+      const deOnde = (n: string) => join(__dirname, '..', 'renderer', 'main_window', 'capes', n);
+
+      /* Copia o catálogo inteiro, não só a escolhida. O menu de capas dentro
+         do jogo lista o que existe nesta pasta: copiando uma só, ele mostrava
+         uma opção só e não dava pra trocar de nada. */
+      const catalogo: Array<{ id: string; name: string; arquivo: string }> =
+        Array.isArray(dados.catalogo) ? dados.catalogo : [];
+      const nossos = new Set<string>();
+      for (const c of catalogo) {
+        if (!c || !c.arquivo) continue;
+        try { await copyFile(deOnde(c.arquivo), join(pastaCapas, c.arquivo)); nossos.add(c.arquivo); }
+        catch { /* capa que nao veio no pacote: ignora */ }
+      }
+
+      /* tira as que o launcher deixou lá em versões anteriores e não existem
+         mais — senão o menu do jogo continua oferecendo capa aposentada */
+      if (catalogo.length) {
+        for (const n of await readdir(pastaCapas).catch(() => [] as string[])) {
+          if (/\.png$/i.test(n) && !nossos.has(n)) await unlink(join(pastaCapas, n)).catch(() => {});
+        }
+      }
+
       let arquivoCapa: string | null = null;
       if (dados.capa && dados.capa.arquivo) {
-        /* capa do launcher: copia o png pra pasta do jogo */
-        const origem = join(__dirname, '..', 'renderer', 'main_window', 'capes', dados.capa.arquivo);
-        await copyFile(origem, join(destino, 'capes', dados.capa.arquivo));
+        try { await copyFile(deOnde(dados.capa.arquivo), join(pastaCapas, dados.capa.arquivo)); }
+        catch { /* ja copiada acima, ou ausente */ }
         arquivoCapa = 'capes/' + dados.capa.arquivo;
+      }
+
+      /* catálogo em disco: o mod usa isto para os nomes e a ordem, e cai
+         para varrer a pasta se o arquivo não existir */
+      if (catalogo.length) {
+        await writeFile(join(destino, 'capes.json'), JSON.stringify({
+          version: 1,
+          capes: catalogo.map((c) => ({
+            id: c.id, name: c.name, file: 'capes/' + c.arquivo, source: 'launcher'
+          }))
+        }, null, 2));
       }
 
       await writeFile(join(destino, 'cosmetics.json'), JSON.stringify({
