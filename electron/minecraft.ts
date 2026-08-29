@@ -70,9 +70,17 @@ export function uuidOffline(nick: string): string {
   return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
 }
 
+/* Resposta de erro tem corpo, e corpo não lido segura a conexão e o
+   ouvinte do AbortSignal até o coletor passar. Com milhares de assets
+   dividindo um sinal só, isso vira acúmulo de verdade — é a origem do
+   "MaxListenersExceededWarning" que aparecia nos downloads. */
+async function descartar(r: Response): Promise<void> {
+  await r.body?.cancel().catch(() => {});
+}
+
 async function baixarJson(url: string, sinal?: AbortSignal): Promise<any> {
   const r = await fetch(url, { signal: sinal });
-  if (!r.ok) throw new Error(`falhou ao buscar ${url} (HTTP ${r.status})`);
+  if (!r.ok) { await descartar(r); throw new Error(`falhou ao buscar ${url} (HTTP ${r.status})`); }
   return r.json();
 }
 
@@ -82,7 +90,7 @@ async function baixarArquivo(url: string, destino: string, sinal?: AbortSignal):
   await mkdir(dirname(destino), { recursive: true });
   const temp = destino + '.part';
   const r = await fetch(url, { signal: sinal });
-  if (!r.ok || !r.body) throw new Error(`download falhou: ${url} (HTTP ${r.status})`);
+  if (!r.ok || !r.body) { await descartar(r); throw new Error(`download falhou: ${url} (HTTP ${r.status})`); }
   await pipeline(Readable.fromWeb(r.body as any), createWriteStream(temp));
   await rename(temp, destino);
   return (await stat(destino)).size;
@@ -501,10 +509,23 @@ function pidEhJava(pid: number): Promise<boolean> {
   });
 }
 
+/* qual pid já foi confirmado como java — ver abaixo por que isso importa */
+let javaConfirmado = 0;
+
 async function jogoVivo(perfil: string): Promise<Sessao | null> {
   const s = await lerSessao(perfil);
   if (!s) return null;
-  if (!pidVivo(s.pid) || !(await pidEhJava(s.pid))) { await apagarSessao(perfil); return null; }
+  if (!pidVivo(s.pid)) { await apagarSessao(perfil); javaConfirmado = 0; return null; }
+
+  /* tasklist custa ~55ms e cria um processo. Isto aqui é consultado de
+     1,5 em 1,5 segundos enquanto se joga, então rodá-lo sempre seria gastar
+     55ms por segundo justamente enquanto a máquina está ocupada com o jogo.
+     A checagem existe contra reciclagem de PID, e para isso basta fazê-la
+     uma vez por pid: depois, "existe" já implica "é aquele java". */
+  if (javaConfirmado !== s.pid) {
+    if (!(await pidEhJava(s.pid))) { await apagarSessao(perfil); return null; }
+    javaConfirmado = s.pid;
+  }
   return s;
 }
 

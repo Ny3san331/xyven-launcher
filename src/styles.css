@@ -492,12 +492,18 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
 .skined__title{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .skined__title>span:first-child{font-size:10px;font-weight:700;letter-spacing:.18em;background:var(--ink);color:var(--paper);padding:4px 8px}
 .skinlist{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.skincard{padding:8px;border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:var(--shadow);cursor:pointer;display:flex;flex-direction:column;gap:8px;text-align:left;color:var(--ink)}
+/* align-items explicito: .skincard e um <button>, e no Chromium os filhos
+   de um botao em flex nao esticam mesmo o computado dizendo stretch.
+   Sem isto a previa da skin ficava com 3px de largura e sumia. */
+.skincard{padding:8px;border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:var(--shadow);cursor:pointer;display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;color:var(--ink)}
 .skincard:hover{background:var(--mustard);color:var(--on-accent,#33261c)}
 .skincard:active{box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
 .skincard.is-on{background:var(--mustard);color:var(--on-accent,#33261c);box-shadow:0 0 0 var(--ink)}
 .skincard__img{height:86px;border:2px solid var(--ink);background:#dcc59a;background-size:cover;background-position:center top;image-rendering:pixelated}
 .skincard__name{font-size:10.5px;font-weight:700;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* so aparece na skin selecionada */
+.skincard__remover{display:block;margin-top:2px;padding:3px 0;border:2px solid var(--ink);background:var(--paper);color:var(--ink);font-family:var(--font-ui);font-size:9px;font-weight:700;letter-spacing:.06em;text-align:center;cursor:pointer}
+.skincard__remover:hover{background:var(--red);color:var(--paper)}
 .capes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .cape{padding:8px;border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:var(--shadow);cursor:pointer;display:flex;flex-direction:column;gap:7px;color:var(--ink)}
 .cape:hover{background:var(--mustard);color:var(--on-accent,#33261c)}

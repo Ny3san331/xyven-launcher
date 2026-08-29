@@ -86,14 +86,31 @@ document.getElementById('btnClose').onclick = () => window.api?.window?.close?.(
 /* ============================================================
    9. RENDER
    ============================================================ */
+/* Modelo REAL da textura da conta, informado pela Mojang. Nulo enquanto nao
+   se sabe — e ai a textura e tratada como se casasse com a geometria.
+   Declarado AQUI, e nao junto de skinParts la embaixo: buildSkinInto roda no
+   boot, antes daquele ponto, e um 'let' depois do uso da TDZ. Ja derrubou
+   este arquivo tres vezes. */
+let texturaSlim = null;
+
 function renderStats() {
   $('#versionLabel').textContent = state.version;
   $('#statVersion').textContent = state.version;
   $('#statMem').textContent = state.mem + ' MB';
   $('#statJava').textContent = state.java;
   $('#chipName').textContent = state.account || 'ENTRAR';
-  setAvatar($('#chipInitial'), state.account);
-  setAvatar($('#menuInitial'), state.account);
+  /* A cabeca segue a skin que o perfil esta usando; o nick da conta so entra
+     quando nao ha skin escolhida.
+
+     O try nao e decoracao: 'profile' e declarado depois desta funcao, e
+     renderStats roda no boot antes disso. E 'typeof profile' NAO resolve —
+     typeof so protege variavel nao declarada; num let/const em TDZ ele lanca
+     igual. Foi exatamente assim que eu quebrei o boot aqui. */
+  let cabeca = state.account;
+  try { if (profile && profile.skin) cabeca = profile.skin; }
+  catch (e) { /* perfil ainda nao existe neste ponto do boot */ }
+  setAvatar($('#chipInitial'), cabeca);
+  setAvatar($('#menuInitial'), cabeca);
   $('#menuName').textContent = state.account;
   paintSkins();
 }
@@ -1690,13 +1707,14 @@ const SKIN_TEX = (nick) => 'https://mc-heads.net/skin/' + encodeURIComponent(nic
 /* x/y em pixels de textura, medidos a partir do centro do corpo.
    O 0.02 separa faces que ficariam no mesmo plano (braço/torso, perna/perna):
    sem essa folga o 3D do navegador pisca listras, principalmente nas costas. */
-function skinParts(slim) {
-  const aw = slim ? 3 : 4;
+function skinParts(slim, texSlim) {
+  const aw = slim ? 3 : 4;                     /* largura da caixa (geometria) */
+  const tw = (texSlim === undefined ? slim : texSlim) ? 3 : 4;   /* largura na textura */
   const base = [
     { name: 'head', w: 8,  h: 8,  d: 8, u: 0,  v: 0,  x: -4,               y: 0,  o: { u: 32, v: 0 } },
     { name: 'body', w: 8,  h: 12, d: 4, u: 16, v: 16, x: -4,               y: 8,  o: { u: 16, v: 32 } },
-    { name: 'armR', w: aw, h: 12, d: 4, u: 40, v: 16, x: -(4 + aw) + 0.02, y: slim ? 8.5 : 8, o: { u: 40, v: 32 } },
-    { name: 'armL', w: aw, h: 12, d: 4, u: 32, v: 48, x: 4 - 0.02,         y: slim ? 8.5 : 8, o: { u: 48, v: 48 } },
+    { name: 'armR', w: aw, tw: tw, h: 12, d: 4, u: 40, v: 16, x: -(4 + aw) + 0.02, y: slim ? 8.5 : 8, o: { u: 40, v: 32 } },
+    { name: 'armL', w: aw, tw: tw, h: 12, d: 4, u: 32, v: 48, x: 4 - 0.02,         y: slim ? 8.5 : 8, o: { u: 48, v: 48 } },
     { name: 'legR', w: 4,  h: 12, d: 4, u: 0,  v: 16, x: -4 + 0.02,        y: 20, o: { u: 0,  v: 32 } },
     { name: 'legL', w: 4,  h: 12, d: 4, u: 16, v: 48, x: -0.02,            y: 20, o: { u: 0,  v: 48 } }
   ];
@@ -1710,23 +1728,36 @@ function skinParts(slim) {
 }
 
 function faceStyle(tex, sc, p, face) {
+  /* Largura da peça NA TEXTURA. Costuma ser igual à da geometria, mas o braço
+     de uma skin slim ocupa 3px enquanto a caixa clássica tem 4. E não é só a
+     frente: numa textura slim o verso fica em u+11 e a lateral em u+7, contra
+     u+12 e u+8 na clássica. Lendo com os offsets errados vinham colunas vazias
+     nas costas — era o buraco que aparecia no modo PADRÃO. */
+  const tw = p.tw || p.w;
+
   /* recorte de cada face na folha de skin: [dx, dy, largura, altura] */
   const map = {
-    front: [p.d,           p.d,  p.w, p.h],
-    back:  [p.d * 2 + p.w, p.d,  p.w, p.h],
-    right: [0,             p.d,  p.d, p.h],
-    left:  [p.d + p.w,     p.d,  p.d, p.h],
-    top:   [p.d,           0,    p.w, p.d],
-    bottom:[p.d + p.w,     0,    p.w, p.d]
+    front: [p.d,          p.d,  tw,  p.h],
+    back:  [p.d * 2 + tw, p.d,  tw,  p.h],
+    right: [0,            p.d,  p.d, p.h],
+    left:  [p.d + tw,     p.d,  p.d, p.h],
+    top:   [p.d,          0,    tw,  p.d],
+    bottom:[p.d + tw,     0,    tw,  p.d]
   }[face];
-  const [ox, oy, fw, fh] = map;
+  const [ox, oy, sw, sh] = map;
+
+  /* a face tem o tamanho da GEOMETRIA; quando a fonte é mais estreita que
+     ela, a textura é esticada para cobrir em vez de deixar coluna vazia */
+  const fw = (sw === tw) ? p.w : sw;
+  const kx = fw / sw;
+
   /* cada face é centrada na caixa; o transform 3D leva ela pro lugar */
   return 'position:absolute;left:50%;top:50%;' +
-    'width:' + (fw * sc) + 'px;height:' + (fh * sc) + 'px;' +
-    'margin-left:' + (-fw * sc / 2) + 'px;margin-top:' + (-fh * sc / 2) + 'px;' +
+    'width:' + (fw * sc) + 'px;height:' + (sh * sc) + 'px;' +
+    'margin-left:' + (-fw * sc / 2) + 'px;margin-top:' + (-sh * sc / 2) + 'px;' +
     'background-image:url(' + tex + ');' +
-    'background-size:' + (64 * sc) + 'px ' + (64 * sc) + 'px;' +
-    'background-position:' + (-(p.u + ox) * sc) + 'px ' + (-(p.v + oy) * sc) + 'px;';
+    'background-size:' + (64 * sc * kx) + 'px ' + (64 * sc) + 'px;' +
+    'background-position:' + (-(p.u + ox) * sc * kx) + 'px ' + (-(p.v + oy) * sc) + 'px;';
 }
 
 /* a capa escolhida no editor só vale depois do USAR ESTA SKIN */
@@ -1741,7 +1772,10 @@ function buildSkinInto(sel, nick, sc, capeId, slim) {
   const capeDef = capasDaConta.concat(CAPAS_XYVEN).find(c => c.id === capeId);
   const capeTex = (capeDef && capeDef.url) ? String(capeDef.url).replace(/^http:/, 'https:') : '';
 
-  const partesHtml = skinParts(slim).map(p => {
+  /* o modelo real so vale para a skin da propria conta; para um nick salvo
+     qualquer nao ha como saber, entao assume-se que a textura casa com a caixa */
+  const texSlim = (texturaSlim !== null && nick === profile.nick) ? texturaSlim : !!slim;
+  const partesHtml = skinParts(slim, texSlim).map(p => {
     const W = p.w * sc, H = p.h * sc, D = p.d * sc;
     const faces = [
       ['front',  'translateZ(' + (D / 2) + 'px)'],
@@ -1887,7 +1921,7 @@ async function carregarCapas(nick) {
     contaEhPremium = !!(info && info.premium);
     if (info && info.capa) capasDaConta = [{ id: 'mojang-ativa', name: 'CAPA DA CONTA', url: info.capa }];
     /* respeita o tipo de braco da conta em vez de assumir o classico */
-    if (info && info.modelo) aplicarModelo(info.modelo === 'slim');
+    if (info && info.modelo) { texturaSlim = info.modelo === 'slim'; aplicarModelo(texturaSlim); }
   } catch (e) { /* offline: segue sem capa */ }
 }
 
@@ -1929,6 +1963,7 @@ function renderSkinEditor() {
     <button class="skincard ${n === skinDraft ? 'is-on' : ''}" data-skinpick="${esc(n)}">
       <span class="skincard__img" style="background-image:url('https://mc-heads.net/body/${encodeURIComponent(n)}/180')"></span>
       <span class="skincard__name">${esc(n)}</span>
+      ${n === skinDraft ? `<span class="skincard__remover" data-skindel="${esc(n)}">REMOVER</span>` : ''}
     </button>`).join('');
 
   buildSkinInto('#skinEdBody', skinDraft, 5, capeDraft, slimDraft);
@@ -1957,6 +1992,18 @@ $('#capeList').addEventListener('click', (e) => {
 });
 
 $('#skinList').addEventListener('click', (e) => {
+  /* o remover vive dentro do card: precisa ser atendido antes, senao o
+     clique nele tambem contaria como escolher a skin */
+  const del = e.target.closest('[data-skindel]');
+  if (del) {
+    const nome = del.dataset.skindel;
+    savedSkins = savedSkins.filter((x) => x !== nome);
+    /* removeu a que estava em uso: cai para a primeira que sobrou, ou para o
+       nick da conta, para a previa nao ficar apontando pro vazio */
+    if (skinDraft === nome) skinDraft = savedSkins[0] || profile.nick || state.account;
+    saveSkins(); renderSkinEditor();
+    return;
+  }
   const b = e.target.closest('[data-skinpick]'); if (!b) return;
   skinDraft = b.dataset.skinpick; renderSkinEditor();
 });
