@@ -9,6 +9,7 @@ import { mkdir, readFile, writeFile, rename, stat, unlink, readdir } from 'fs/pr
 import { join, dirname, delimiter } from 'path';
 import { spawn, execFile, ChildProcess } from 'child_process';
 import { inflateRawSync } from 'zlib';
+import { totalmem } from 'os';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 
@@ -28,6 +29,7 @@ export type OpcoesLancar = {
   versao: string;
   memoriaMb: number;
   javaPath: string;
+  /* instalacao compartilhada (o .minecraft): versions/, libraries/, assets/ */
   gameDir: string;
   nick: string;
   /* preenchidos quando houver login Microsoft; vazio = modo offline */
@@ -35,6 +37,16 @@ export type OpcoesLancar = {
   accessToken?: string;
   userType?: string;
 };
+
+/* ------------------------------------------------------------
+   perfil do launcher: pasta propria dentro do .minecraft, usada como
+   --gameDir. Mantem mods, saves, config e options.txt separados do
+   Minecraft oficial, mas compartilha versions/, libraries/ e assets/
+   com a raiz pra nao baixar nada duas vezes.
+   ------------------------------------------------------------ */
+export function pastaPerfil(raiz: string): string {
+  return join(raiz, '.xyven');
+}
 
 /* ------------------------------------------------------------
    utilidades
@@ -417,7 +429,7 @@ function argumentosJvm(vjson: any, mapa: Record<string, string>, memoriaMb: numb
 }
 
 /* ------------------------------------------------------------
-   arquivo de log em <gameDir>/logs — a pasta padrao do Minecraft.
+   arquivo de log em <perfil>/logs — a pasta de log do perfil.
    Nome proprio pra nao brigar com o latest.log do log4j do jogo.
    ------------------------------------------------------------ */
 async function abrirArquivoDeLog(gameDir: string, versao: string, javaPath: string, args: string[]) {
@@ -469,6 +481,7 @@ export async function preparar(
   abortoAtual = new AbortController();
   const sinal = abortoAtual.signal;
   const raiz = o.gameDir;
+  const perfil = pastaPerfil(raiz);
 
   aoProgredir({ fase: 'CONFERINDO A FITA', arquivosProntos: 0, arquivosTotal: 0, bytesProntos: 0, bytesTotal: 0 });
   const plano = await montarPlano(o.versao, raiz, sinal);
@@ -510,7 +523,7 @@ export async function preparar(
   const mapa: Record<string, string> = {
     auth_player_name: o.nick,
     version_name: o.versao,
-    game_directory: raiz,
+    game_directory: perfil,
     assets_root: plano.assetsDir,
     game_assets: join(plano.assetsDir, 'virtual', 'legacy'),
     assets_index_name: plano.vjson.assetIndex.id,
@@ -546,12 +559,30 @@ export async function lancar(
 
   aoProgredir({ fase: 'ABRINDO O MINECRAFT', arquivosProntos: 1, arquivosTotal: 1, bytesProntos: 1, bytesTotal: 1 });
 
-  await mkdir(o.gameDir, { recursive: true });
-  const arquivo = await abrirArquivoDeLog(o.gameDir, o.versao, o.javaPath, args);
+  const perfil = pastaPerfil(o.gameDir);
+  await mkdir(join(perfil, 'mods'), { recursive: true });   /* o Forge espera a pasta pronta */
+  const arquivo = await abrirArquivoDeLog(perfil, o.versao, o.javaPath, args);
   aoLog('[xyven] log desta sessão: ' + arquivo.caminho);
 
-  const p = spawn(o.javaPath, args, { cwd: o.gameDir, stdio: ['ignore', 'pipe', 'pipe'] });
+  const p = spawn(o.javaPath, args, { cwd: perfil, stdio: ['ignore', 'pipe', 'pipe'] });
   processoAtual = p;
+
+  /* a JVM morre antes de abrir quando o heap não cabe; o texto dela não
+     ajuda ninguém, então traduz uma vez por sessão. */
+  let jaExplicou = false;
+  const explicar = (linha: string): string | null => {
+    if (jaExplicou) return null;
+    /* a mensagem muda conforme a JVM: umas dizem "could not reserve",
+       outras "unable to allocate ... for the requested heap". */
+    const m = /Could not reserve enough space for (\d+)KB object heap/.exec(linha)
+           || /requested (\d+)KB heap/.exec(linha);
+    if (!m) return null;
+    jaExplicou = true;
+    const pedidoMb = Math.round(Number(m[1]) / 1024);
+    return '[xyven] o Java não conseguiu reservar os ' + pedidoMb + ' MB pedidos. '
+      + 'diminua a memória alocada em Ajustes, ou escolha um Java de 64 bits — '
+      + 'o de 32 bits não passa de ~1 GB por mais RAM que a máquina tenha.';
+  };
 
   const porLinha = (fluxo: NodeJS.ReadableStream, marca: string) => {
     let resto = '';
@@ -562,6 +593,8 @@ export async function lancar(
         const linha = marca + l;
         aoLog(linha);
         arquivo.fluxo.write(linha + String.fromCharCode(10));
+        const ajuda = explicar(l);
+        if (ajuda) { aoLog(ajuda); arquivo.fluxo.write(ajuda + String.fromCharCode(10)); }
       });
     });
   };
@@ -721,16 +754,21 @@ export async function instalarForge(
 /* ------------------------------------------------------------
    Java instalado na máquina
    ------------------------------------------------------------ */
-const versaoDoJava = (exe: string) => new Promise<string | null>((res) => {
+const versaoDoJava = (exe: string) => new Promise<{ versao: string; bits: 32 | 64 } | null>((res) => {
   /* -version sai no stderr, não no stdout */
   execFile(exe, ['-version'], (err, _out, errOut) => {
     if (err && !errOut) return res(null);
-    const m = /version "([^"]+)"/.exec(errOut || '');
-    res(m ? m[1] : null);
+    const texto = errOut || '';
+    const m = /version "([^"]+)"/.exec(texto);
+    if (!m) return res(null);
+    /* a terceira linha diz "64-Bit Server VM" quando é de 64. Java de
+       32 bits não endereça nem 2 GB, e é por isso que o heap padrão
+       às vezes não cabe. */
+    res({ versao: m[1], bits: /64-bit/i.test(texto) ? 64 : 32 });
   });
 });
 
-export async function detectarJava(): Promise<{ caminho: string; versao: string; maior: number }[]> {
+export async function detectarJava(): Promise<{ caminho: string; versao: string; maior: number; bits: 32 | 64 }[]> {
   const candidatos = new Set<string>();
   const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
   const pf86 = process.env['ProgramFiles(x86)'] || '';
@@ -760,20 +798,49 @@ export async function detectarJava(): Promise<{ caminho: string; versao: string;
     } catch { /* base não existe */ }
   }
 
-  const achados: { caminho: string; versao: string; maior: number }[] = [];
+  const achados: { caminho: string; versao: string; maior: number; bits: 32 | 64 }[] = [];
   for (const c of candidatos) {
     if (!(await existe(c))) continue;
     const v = await versaoDoJava(c);
     if (!v) continue;
     /* "1.8.0_412" => 8 ; "17.0.19" => 17 */
-    const p = v.split('.');
+    const p = v.versao.split('.');
     const maior = p[0] === '1' ? Number(p[1]) : Number(p[0]);
     if (!Number.isFinite(maior)) continue;
-    if (achados.some((a) => a.versao === v)) continue;
-    achados.push({ caminho: c, versao: v, maior });
+    if (achados.some((a) => a.versao === v.versao)) continue;
+    achados.push({ caminho: c, versao: v.versao, maior, bits: v.bits });
   }
   achados.sort((a, b) => a.maior - b.maior);
   return achados;
+}
+
+/* ------------------------------------------------------------
+   quanto de RAM dá pra prometer à JVM. Sem isso o launcher deixava
+   pedir 7 GB numa máquina que não tem, e o Java morria com
+   "Could not reserve enough space for object heap" antes de abrir.
+   ------------------------------------------------------------ */
+export const TETO_MEMORIA = 7168;    /* o máximo que o fader mostra */
+
+export async function limitesDeMemoria(javaPath?: string): Promise<{
+  min: number; max: number; totalMb: number; bits: 32 | 64 | null;
+}> {
+  const min = 1024;
+  const totalMb = Math.floor(totalmem() / (1024 * 1024));
+
+  let bits: 32 | 64 | null = null;
+  if (javaPath) {
+    const v = await versaoDoJava(javaPath);
+    if (v) bits = v.bits;
+  }
+
+  /* JVM de 32 bits não passa de ~1,5 GB de heap, por mais RAM que
+     a máquina tenha — o limite é do processo, não do computador. */
+  if (bits === 32) return { min: 512, max: 1024, totalMb, bits };
+
+  /* deixa 2 GB pro sistema; nunca abaixo do mínimo nem acima do teto */
+  const sobra = Math.floor((totalMb - 2048) / 256) * 256;
+  const max = Math.max(min, Math.min(TETO_MEMORIA, sobra));
+  return { min, max, totalMb, bits };
 }
 
 /* qual Java a versão do jogo pede */

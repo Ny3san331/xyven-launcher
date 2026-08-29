@@ -53,6 +53,8 @@ const CONFIG = {
 const state = {
   version: '1.8.9',
   mem: 2048,
+  memBits: null,          /* bits do Java em uso, pra explicar o teto */
+  memTotal: 0,            /* RAM da maquina, em MB */
   java: 'Java 17',
   account: '',
   tab: 'jogo'
@@ -285,6 +287,22 @@ function renderAccounts() {
     <button class="account account--add" id="addAccount">+ ADICIONAR CONTA</button>`;
 }
 
+/* o teto do fader vem da maquina, nao do HTML: 32 bits nao passa de ~1 GB,
+   e prometer mais RAM do que existe mata a JVM antes de abrir. */
+async function aplicarLimitesDeMemoria() {
+  if (!temApi() || !window.api.java || !window.api.java.limites) return;
+  try {
+    const lim = await window.api.java.limites(state.javaPath || undefined);
+    if (!lim || !lim.max) return;
+    CONFIG.memory.min = lim.min;
+    CONFIG.memory.max = lim.max;
+    state.memBits = lim.bits;
+    state.memTotal = lim.totalMb;
+    state.mem = Math.min(Math.max(state.mem, lim.min), lim.max);
+    renderMemory();
+  } catch (e) { console.warn('não consegui medir a memória disponível', e); }
+}
+
 function renderMemory() {
   const { min, max } = CONFIG.memory;
   const pct = ((state.mem - min) / (max - min)) * 100 + '%';
@@ -294,6 +312,13 @@ function renderMemory() {
   $('#faderKnob').style.left = pct;
   $('#memMin').textContent = min + ' MB';
   $('#memMax').textContent = max + ' MB';
+  const dica = $('#memHint');
+  if (dica) {
+    dica.textContent = state.memBits === 32
+      ? 'este Java é de 32 bits: ele não passa de ~1 GB, por mais RAM que a máquina tenha.'
+      : (state.memTotal ? 'a máquina tem ' + (state.memTotal / 1024).toFixed(1)
+          + ' GB; o teto deixa 2 GB para o sistema.' : '');
+  }
   renderStats();
 }
 
@@ -549,7 +574,7 @@ $('#javaList').addEventListener('click', (e) => {
   const escolhido = CONFIG.javas.find((j) => j.path === b.dataset.java);
   if (escolhido) { state.javaPath = escolhido.path; state.java = escolhido.name; }
   javaAberto = false;
-  renderJava(); renderStats();
+  renderJava(); renderStats(); aplicarLimitesDeMemoria();
 });
 
 /* clicar fora fecha a lista */
@@ -933,16 +958,41 @@ const moddedDe = {};
 
 /* a pasta do jogo tem que vir da maquina, nao do HTML: o valor fixo
    apontava pro usuario da maquina onde o app foi compilado. */
+/* uma versao antiga chegou a salvar 'AppData\Roaming.minecraft', sem a
+   barra. Recoloca o separador quando o caminho termina em .minecraft
+   grudado no que vem antes. */
+function consertarBarra(caminho) {
+  const barra = String.fromCharCode(92);
+  /* barra dobrada: dentro da classe, uma so escaparia a proxima */
+  const m = new RegExp('^(.*[^' + barra + barra + '/])[.]minecraft$').exec(caminho || '');
+  return m ? m[1] + barra + '.minecraft' : caminho;
+}
+
+async function pastaExiste(caminho) {
+  if (!temApi() || !window.api.app || !window.api.app.pastaExiste) return true;
+  try { return await window.api.app.pastaExiste(caminho); } catch (e) { return true; }
+}
+
 async function definirPastaJogo() {
   let salva = null;
   try { salva = localStorage.getItem('xyven.dir'); } catch (e) { /* sem storage */ }
 
-  if (!salva && temApi() && window.api.app && window.api.app.pastaJogo) {
-    try { salva = await window.api.app.pastaJogo(); } catch (e) { /* sem api */ }
+  const padrao = (temApi() && window.api.app && window.api.app.pastaJogo)
+    ? await window.api.app.pastaJogo().catch(() => null)
+    : null;
+
+  if (salva) {
+    /* caminho salvo torto (ou de uma pasta que sumiu) nao pode mandar
+       no launcher: conserta o que da, e o resto volta pro padrao. */
+    const consertado = consertarBarra(salva);
+    if (consertado !== salva && await pastaExiste(consertado)) salva = consertado;
+    else if (!(await pastaExiste(salva))) salva = null;
   }
+  if (!salva) salva = padrao;
   if (!salva) return;                 /* navegador: deixa em branco */
   state.dir = salva;
   $('#dirInput').value = salva;
+  salvarPasta();                      /* regrava ja saneado */
 }
 
 const salvarPasta = () => { try { localStorage.setItem('xyven.dir', state.dir || ''); } catch (e) { /* sem storage */ } };
@@ -982,7 +1032,7 @@ async function carregarJava() {
     }));
     const bom = CONFIG.javas.find((j) => j.maior === exigido) || CONFIG.javas[CONFIG.javas.length - 1];
     state.java = bom.name; state.javaPath = bom.path;
-    renderJava(); renderStats();
+    renderJava(); renderStats(); await aplicarLimitesDeMemoria();
   } catch (e) { console.warn('não consegui detectar o Java', e); }
 }
 

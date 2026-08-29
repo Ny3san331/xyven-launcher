@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
-import { copyFile, mkdir, writeFile } from 'fs/promises';
+import { copyFile, mkdir, stat, writeFile } from 'fs/promises';
 import { shell, clipboard } from 'electron';
 
 function createWindow() {
@@ -51,6 +51,11 @@ function createWindow() {
   ipcMain.handle('app:version', () => app.getVersion());
   /* %APPDATA%\.minecraft da maquina atual — nunca um caminho fixo */
   ipcMain.handle('app:pastaJogo', () => join(app.getPath('appData'), '.minecraft'));
+  /* o renderer usa isso pra desconfiar de um caminho salvo torto */
+  ipcMain.handle('app:pastaExiste', async (_e, caminho: string) => {
+    if (!caminho) return false;
+    return stat(caminho).then((s) => s.isDirectory(), () => false);
+  });
 
   /* ---------- verificar atualização ----------
      compara a versão do app com a última Release do repositório. */
@@ -107,11 +112,13 @@ function createWindow() {
   });
 
   /* ---------- cosmeticos: contrato com o mod ----------
-     escreve <gameDir>/xyven/cosmetics.json + a textura, para o mod
-     dentro do jogo ler sem precisar falar com o launcher. */
+     escreve <perfil>/cosmetics.json + a textura em <perfil>/capes/,
+     para o mod dentro do jogo ler sem precisar falar com o launcher.
+     O perfil e o --gameDir passado ao jogo, entao o caminho gravado
+     em `file` e relativo a ele. */
   ipcMain.handle('cosmeticos:aplicar', async (_e, dados) => {
     try {
-      const destino = join(dados.gameDir, 'xyven');
+      const destino = mc.pastaPerfil(dados.gameDir);
       await mkdir(join(destino, 'capes'), { recursive: true });
 
       let arquivoCapa: string | null = null;
@@ -119,7 +126,7 @@ function createWindow() {
         /* capa do launcher: copia o png pra pasta do jogo */
         const origem = join(__dirname, '..', 'renderer', 'main_window', 'capes', dados.capa.arquivo);
         await copyFile(origem, join(destino, 'capes', dados.capa.arquivo));
-        arquivoCapa = 'xyven/capes/' + dados.capa.arquivo;
+        arquivoCapa = 'capes/' + dados.capa.arquivo;
       }
 
       await writeFile(join(destino, 'cosmetics.json'), JSON.stringify({
@@ -129,7 +136,7 @@ function createWindow() {
         cape: dados.capa ? {
           id: dados.capa.id,
           source: dados.capa.origem,              /* 'launcher' | 'mojang' | null */
-          file: arquivoCapa,                      /* caminho relativo ao .minecraft */
+          file: arquivoCapa,                      /* relativo ao gameDir (o perfil) */
           /* capa do launcher vem por arquivo; a da Mojang, por url */
           url: dados.capa.origem === 'launcher' ? null : (dados.capa.url || null)
         } : null,
@@ -144,6 +151,7 @@ function createWindow() {
   ipcMain.handle('mc:conta', (_e, nick: string) => mc.contaMojang(nick));
   ipcMain.handle('java:detectar', () => mc.detectarJava());
   ipcMain.handle('java:exigido', (_e, versao: string) => mc.javaExigido(versao));
+  ipcMain.handle('java:limites', (_e, javaPath?: string) => mc.limitesDeMemoria(javaPath));
 
   /* ---------- Minecraft ---------- */
   ipcMain.handle('mc:versoes', () => mc.listarVersoes());

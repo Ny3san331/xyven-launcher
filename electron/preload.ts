@@ -6,10 +6,11 @@ contextBridge.exposeInMainWorld('api', {
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
   },
-  dialog: { showOpenDialog: (opts) => ipcRenderer.invoke('dialog:open', opts) },
+  dialog: { showOpenDialog: (opts: unknown) => ipcRenderer.invoke('dialog:open', opts) },
   app: {
     getVersion: () => ipcRenderer.invoke('app:version'),
     pastaJogo: () => ipcRenderer.invoke('app:pastaJogo'),
+    pastaExiste: (caminho: string) => ipcRenderer.invoke('app:pastaExiste', caminho),
     atualizacao: () => ipcRenderer.invoke('app:atualizacao'),
   },
 
@@ -33,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
   java: {
     detectar: () => ipcRenderer.invoke('java:detectar'),
     exigido: (versao: string) => ipcRenderer.invoke('java:exigido', versao),
+    limites: (javaPath?: string) => ipcRenderer.invoke('java:limites', javaPath),
   },
 
   mc: {
