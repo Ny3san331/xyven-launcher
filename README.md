@@ -91,6 +91,14 @@ npm start
 
 ---
 
+## 🤝 Contribuidores
+
+Agradecemos a todas as pessoas que contribuem para o desenvolvimento do **Xyven Launcher**:
+
+<a href="https://github.com/Ny3san331/xyven-launcher/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Ny3san331/xyven-launcher" alt="Lista de Contribuidores" />
+</a>
+
 <div align="center">
 
 [![Feito com Claude](https://img.shields.io/badge/Developed%20with-Claude%20AI-7B2CBF?style=for-the-badge&logo=anthropic&logoColor=white)](https://anthropic.com)
