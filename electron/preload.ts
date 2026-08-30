@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('api', {
     abortar: () => ipcRenderer.invoke('auth:abortar'),
     renovar: (nick: string) => ipcRenderer.invoke('auth:renovar', nick),
     esquecer: (nick: string) => ipcRenderer.invoke('auth:esquecer', nick),
+    trocarSkin: (d: { token: string; url: string; slim: boolean }) =>
+      ipcRenderer.invoke('auth:trocarSkin', d),
     temRefresh: (nick: string) => ipcRenderer.invoke('auth:temRefresh', nick),
     aoPasso: (cb: (t: string) => void) => {
       const h = (_e: unknown, d: string) => cb(d);
@@ -38,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   abrirLink: (url: string) => ipcRenderer.invoke('abrirLink', url),
   cosmeticos: (dados: unknown) => ipcRenderer.invoke('cosmeticos:aplicar', dados),
   copiar: (texto: string) => ipcRenderer.invoke('copiar', texto),
+  servidoresStatus: (lista: string[]) => ipcRenderer.invoke('servidores:status', lista),
 
   java: {
     detectar: () => ipcRenderer.invoke('java:detectar'),

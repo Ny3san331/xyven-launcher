@@ -36,6 +36,8 @@ export type OpcoesLancar = {
   uuid?: string;
   accessToken?: string;
   userType?: string;
+  /* "host" ou "host:porta": o jogo entra direto nesse servidor ao abrir */
+  servidor?: string;
 };
 
 /* ------------------------------------------------------------
@@ -651,6 +653,17 @@ export async function preparar(
     plano.vjson.mainClass,
     ...argumentosDoJogo(plano.vjson, mapa)
   ];
+
+  /* --server/--port fazem o cliente pular o menu e conectar sozinho.
+     Existem desde a 1.6 e valem tambem com o Forge, que so repassa
+     os argumentos do jogo. Sem porta, o proprio jogo resolve o SRV. */
+  if (o.servidor) {
+    const [host, porta] = String(o.servidor).split(':');
+    if (host && host.trim()) {
+      args.push('--server', host.trim());
+      if (porta && Number(porta)) args.push('--port', String(Number(porta)));
+    }
+  }
 
   abortoAtual = null;
   return { plano, args };

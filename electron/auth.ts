@@ -281,6 +281,52 @@ export async function entrar(pai: BrowserWindow | null, passo: Passo = () => {})
 }
 
 /* ------------------------------------------------------------
+   trocar a skin de verdade
+
+   A skin que aparece no jogo não vem do launcher: o servidor
+   pergunta pra Mojang qual é a textura daquele UUID. Escolher
+   uma skin só aqui dentro nunca ia mudar nada in-game — tinha
+   que subir pro perfil, e agora dá, porque o token é válido.
+
+   Vale pra conta inteira: muda no Xyven, no launcher oficial e
+   em qualquer servidor. Não é preferência local.
+   ------------------------------------------------------------ */
+const MC_SKIN = 'https://api.minecraftservices.com/minecraft/profile/skins';
+
+export async function trocarSkin(accessToken: string, urlPng: string, slim: boolean) {
+  await anotar('skin: baixando ' + urlPng);
+  const img = await fetch(urlPng);
+  if (!img.ok) throw new Error('não consegui baixar a imagem da skin (HTTP ' + img.status + ').');
+  const bytes = Buffer.from(await img.arrayBuffer());
+
+  /* a Mojang recusa qualquer coisa que não seja PNG de skin */
+  if (bytes.length < 8 || bytes.readUInt32BE(0) !== 0x89504e47) {
+    throw new Error('o arquivo baixado não é um PNG.');
+  }
+
+  const form = new FormData();
+  form.append('variant', slim ? 'slim' : 'classic');
+  form.append('file', new Blob([bytes], { type: 'image/png' }), 'skin.png');
+
+  const r = await fetch(MC_SKIN, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken },
+    body: form
+  });
+
+  if (!r.ok) {
+    const corpo = await r.text().catch(() => '');
+    await anotar('skin: falhou ' + r.status + ' ' + corpo.slice(0, 300));
+    if (r.status === 401) throw new Error('a sessão expirou. entre de novo na conta.');
+    if (r.status === 429) throw new Error('a Mojang pediu pra esperar um pouco antes de trocar de novo.');
+    throw new Error('a Mojang recusou a troca de skin (HTTP ' + r.status + ')' +
+                    (corpo ? ': ' + corpo.slice(0, 200) : '') + '.');
+  }
+  await anotar('skin: trocada (' + (slim ? 'slim' : 'classic') + ')');
+  return true;
+}
+
+/* ------------------------------------------------------------
    refresh token — guardado cifrado pelo sistema, nunca em texto
    ------------------------------------------------------------ */
 const arquivoRefresh = () => join(app.getPath('userData'), 'contas', 'refresh.json');

@@ -95,9 +95,12 @@ let texturaSlim = null;
 
 function renderStats() {
   $('#versionLabel').textContent = state.version;
-  $('#statVersion').textContent = state.version;
-  $('#statMem').textContent = state.mem + ' MB';
-  $('#statJava').textContent = state.java;
+  /* os cards de FITA/RAM/JAVA sairam do Inicio pra dar lugar aos servidores.
+     A informacao continua em Ajustes; aqui so nao pode explodir se sumir. */
+  const porId = (id, txt) => { const e = $(id); if (e) e.textContent = txt; };
+  porId('#statVersion', state.version);
+  porId('#statMem', state.mem + ' MB');
+  porId('#statJava', state.java);
   $('#chipName').textContent = state.account || 'ENTRAR';
   /* A cabeca segue a skin que o perfil esta usando; o nick da conta so entra
      quando nao ha skin escolhida.
@@ -951,7 +954,9 @@ if (temApi()) {
 }
 const logDoJogo = [];
 
-$('#playBtn').onclick = async () => {
+/* Um caminho só pra abrir o jogo. O botão TOCAR chama sem servidor;
+   os cards de servidor chamam com o IP, e o jogo entra direto lá. */
+async function tocar(servidor) {
   if (jogoAbrindo) return;
   if (!exigirConta('Entrar para jogar')) return;
   if (jogoAberto) {                     /* segundo clique: encerra o jogo */
@@ -1019,7 +1024,8 @@ $('#playBtn').onclick = async () => {
     nick: sessao ? sessao.nick : state.account,
     uuid: sessao ? sessao.uuid : undefined,
     accessToken: sessao ? sessao.accessToken : undefined,
-    userType: sessao ? 'msa' : undefined
+    userType: sessao ? 'msa' : undefined,
+    servidor: servidor || undefined
   });
 
   if (!r || !r.ok) { falhaAoTocar((r && r.erro) || 'erro desconhecido'); return; }
@@ -1033,7 +1039,9 @@ $('#playBtn').onclick = async () => {
   /* fecha de verdade: o jogo foi iniciado destacado e segue de pé sozinho.
      ao reabrir, o launcher reencontra o processo pelo sessao.json. */
   if (fechar && fechar.on) window.api.window.close();
-};
+}
+
+$('#playBtn').onclick = () => tocar(null);
 
 $('#consoleBtn').onclick = () => { open($('#consoleOverlay')); pintarConsole(); };
 $('#consoleLimpar').onclick = () => { logDoJogo.length = 0; pintarConsole(); };
@@ -1704,7 +1712,7 @@ function skinParts(slim, texSlim) {
   return base.concat(over);
 }
 
-function faceStyle(tex, sc, p, face) {
+function faceStyle(tex, sc, p, face, sheetH) {
   /* Largura da peça NA TEXTURA. Costuma ser igual à da geometria, mas o braço
      de uma skin slim ocupa 3px enquanto a caixa clássica tem 4. E não é só a
      frente: numa textura slim o verso fica em u+11 e a lateral em u+7, contra
@@ -1723,18 +1731,79 @@ function faceStyle(tex, sc, p, face) {
   }[face];
   const [ox, oy, sw, sh] = map;
 
-  /* a face tem o tamanho da GEOMETRIA; quando a fonte é mais estreita que
-     ela, a textura é esticada para cobrir em vez de deixar coluna vazia */
-  const fw = (sw === tw) ? p.w : sw;
-  const kx = fw / sw;
+  /* A face tem a largura da GEOMETRIA. Se a textura for mais estreita
+     (skin slim desenhada na caixa clássica), sobra uma coluna sem pixel:
+     ela fica PRETA, em vez de esticar o desenho ou vazar o pixel vizinho.
+     Por isso a face é uma caixa preta com a textura dentro, recortada. */
+  const larguraCaixa = (face === 'right' || face === 'left') ? p.d : p.w;
+  /* SO na camada de baixo. A de cima (chapeu, jaqueta, manga) e transparente
+     na maioria das skins: pintar o fundo dela de preto tampava a camada de
+     baixo inteira, e o braco saia todo preto em vez de uma coluna so. */
+  const falta = larguraCaixa > sw && !p.over;
 
-  /* cada face é centrada na caixa; o transform 3D leva ela pro lugar */
-  return 'position:absolute;left:50%;top:50%;' +
-    'width:' + (fw * sc) + 'px;height:' + (sh * sc) + 'px;' +
-    'margin-left:' + (-fw * sc / 2) + 'px;margin-top:' + (-sh * sc / 2) + 'px;' +
+  const fora = 'position:absolute;left:50%;top:50%;overflow:hidden;' +
+    'width:' + (larguraCaixa * sc) + 'px;height:' + (sh * sc) + 'px;' +
+    'margin-left:' + (-larguraCaixa * sc / 2) + 'px;margin-top:' + (-sh * sc / 2) + 'px;' +
+    (falta ? 'background-color:#000;' : '');
+
+  const dentro = 'position:absolute;left:0;top:0;' +
+    'width:' + (sw * sc) + 'px;height:' + (sh * sc) + 'px;' +
+    'background-repeat:no-repeat;image-rendering:pixelated;' +
     'background-image:url(' + tex + ');' +
-    'background-size:' + (64 * sc * kx) + 'px ' + (64 * sc) + 'px;' +
-    'background-position:' + (-(p.u + ox) * sc * kx) + 'px ' + (-(p.v + oy) * sc) + 'px;';
+    'background-size:' + (64 * sc) + 'px ' + ((sheetH || 64) * sc) + 'px;' +
+    'background-position:' + (-(p.u + ox) * sc) + 'px ' + (-(p.v + oy) * sc) + 'px;';
+
+  return { fora: fora, dentro: dentro };
+}
+
+/* monta as seis faces de uma caixa. serve pro corpo e pra capa */
+function caixa3d(tex, sc, p, sheetH) {
+  const W = p.w * sc, H = p.h * sc, D = p.d * sc;
+  return [
+    ['front',  'translateZ(' + (D / 2) + 'px)'],
+    ['back',   'rotateY(180deg) translateZ(' + (D / 2) + 'px)'],
+    ['right',  'rotateY(-90deg) translateZ(' + (W / 2) + 'px)'],
+    ['left',   'rotateY(90deg) translateZ(' + (W / 2) + 'px)'],
+    ['top',    'rotateX(90deg) translateZ(' + (H / 2) + 'px)'],
+    ['bottom', 'rotateX(-90deg) translateZ(' + (H / 2) + 'px)']
+  ].map(([f, t]) => {
+    const e = faceStyle(tex, sc, p, f, sheetH);
+    return '<div class="skin__part" style="' + e.fora + 'transform:' + t + '">' +
+             '<div style="' + e.dentro + '"></div></div>';
+  }).join('');
+}
+
+/* ------------------------------------------------------------
+   Qual é o modelo da skin: braço de 3px (slim) ou de 4px (clássico)?
+
+   Antes isso só era conhecido para a skin da própria conta; para
+   qualquer nick salvo o código assumia que a textura casava com a
+   caixa. Quando não casava — skin slim desenhada na caixa clássica —
+   ele lia 4px de largura de um braço que só tem 3, e a coluna a mais
+   caía em cima de pixel transparente. Era daí que vinham as faixas
+   vazias no braço, na perna e no PADRÃO.
+
+   A Mojang responde isso para qualquer nick, então não há por que
+   adivinhar. A resposta fica em cache e a prévia se redesenha sozinha
+   quando ela chega.
+   ------------------------------------------------------------ */
+const modeloPorNick = Object.create(null);   /* nick -> true = slim */
+const modeloPedido = Object.create(null);
+
+function modeloDoNick(nick, aoSaber) {
+  const k = String(nick || '').toLowerCase();
+  if (!k) return null;
+  if (k in modeloPorNick) return modeloPorNick[k];
+  if (!modeloPedido[k] && temApi() && window.api.mc && window.api.mc.conta) {
+    modeloPedido[k] = true;
+    window.api.mc.conta(nick)
+      .then((info) => {
+        modeloPorNick[k] = !!(info && info.modelo === 'slim');
+        if (aoSaber) aoSaber();
+      })
+      .catch(() => { modeloPorNick[k] = null; });   /* offline: segue no palpite */
+  }
+  return null;
 }
 
 /* a capa escolhida no editor só vale depois do USAR ESTA SKIN */
@@ -1749,24 +1818,22 @@ function buildSkinInto(sel, nick, sc, capeId, slim) {
   const capeDef = capasDaConta.concat(CAPAS_XYVEN).find(c => c.id === capeId);
   const capeTex = (capeDef && capeDef.url) ? String(capeDef.url).replace(/^http:/, 'https:') : '';
 
-  /* o modelo real so vale para a skin da propria conta; para um nick salvo
-     qualquer nao ha como saber, entao assume-se que a textura casa com a caixa */
-  const texSlim = (texturaSlim !== null && nick === profile.nick) ? texturaSlim : !!slim;
+  /* o modelo vem da Mojang; enquanto não chega, cai no que já se sabia.
+     o callback redesenha esta mesma prévia quando a resposta vier — sem
+     laço, porque na segunda passada o nick já está em cache */
+  const sabido = modeloDoNick(nick, () => buildSkinInto(sel, nick, sc, capeId, slim));
+  const texSlim = (sabido !== null) ? sabido
+    : ((texturaSlim !== null && nick === profile.nick) ? texturaSlim : !!slim);
   const partesHtml = skinParts(slim, texSlim).map(p => {
-    const W = p.w * sc, H = p.h * sc, D = p.d * sc;
-    const faces = [
-      ['front',  'translateZ(' + (D / 2) + 'px)'],
-      ['back',   'rotateY(180deg) translateZ(' + (D / 2) + 'px)'],
-      ['right',  'rotateY(-90deg) translateZ(' + (W / 2) + 'px)'],
-      ['left',   'rotateY(90deg) translateZ(' + (W / 2) + 'px)'],
-      ['top',    'rotateX(90deg) translateZ(' + (H / 2) + 'px)'],
-      ['bottom', 'rotateX(-90deg) translateZ(' + (H / 2) + 'px)']
-    ].map(([f, t]) =>
-      '<div class="skin__part" style="' + faceStyle(tex, sc, p, f) + 'transform:' + t + '"></div>'
-    ).join('');
+    const faces = caixa3d(tex, sc, p, 64);
     /* centro da caixa: x + metade da largura, y + metade da altura */
     const cx = (p.x + p.w / 2) * sc, cy = (p.y + p.h / 2) * sc;
-    const grow = p.over ? ' scale3d(1.06,1.04,1.06)' : '';
+    /* Segunda camada bem colada: a 1.06 ela descolava e lia como pixel
+       solto flutuando em volta do braço e da cabeça.
+       E a camada de baixo cresce um tico: caixas encostadas com a face
+       exatamente no mesmo plano deixam fio de fundo passando entre elas,
+       e no papel claro isso lê como risco branco no ombro e na virilha. */
+    const grow = p.over ? ' scale3d(1.03,1.022,1.03)' : ' scale3d(1.022,1.011,1.022)';
     return '<div style="position:absolute;left:50%;top:0;width:0;height:0;transform-style:preserve-3d;' +
       'transform:translate3d(' + cx + 'px,' + cy + 'px,0)' + grow + '">' + faces + '</div>';
   }).join('');
@@ -1776,39 +1843,45 @@ function buildSkinInto(sel, nick, sc, capeId, slim) {
      respeita a ordem de pintura, e no fim ela cobria o peito. */
   let capaHtml = '';
   if (capeTex) {
-    const cw = 10 * sc, ch = 16 * sc;
-    /* capa: painel 10x16 pendurado na linha do ombro.
-       O pivo fica no TOPO (y = 8, atras do torso) e o giro leva so a barra
-       de baixo pra tras — com pivo no centro, a metade de cima entrava no corpo.
-       O Z vai NA face, depois do rotateY(180): no wrapper, o backface-visibility
-       nao recorta e a capa reaparece no peito. */
+    /* Capa é uma CAIXA 10x16x1, não um painel. A folha de capa traz frente,
+       verso, as duas laterais e o topo — desenhar só a frente deixava a capa
+       sem espessura, e de lado ela sumia.
+       Layout da folha 64x32: frente (1,1) 10x16, verso (12,1), laterais 1px
+       em (0,1) e (11,1), topo (1,0) 10x1. É exatamente o mapa genérico de
+       faces, com d=1, então dá pra reusar caixa3d.
+       O pivô fica no ombro (y=8) e o giro leva só a barra de baixo pra trás.
+       O rotateY(180) põe a face "frente" apontando pras costas do jogador. */
+    const capaP = { w: 10, h: 16, d: 1, u: 0, v: 0 };
     capaHtml =
       '<div style="position:absolute;left:50%;top:0;width:0;height:0;transform-style:preserve-3d;' +
         'transform:translate3d(0,' + (8 * sc) + 'px,0) rotateX(-11deg)">' +
-        '<div class="skin__part" style="position:absolute;left:50%;top:0;' +
-          'width:' + cw + 'px;height:' + ch + 'px;margin-left:' + (-cw / 2) + 'px;' +
-          'background-image:url(' + capeTex + ');' +
-          'background-size:' + (64 * sc) + 'px ' + (32 * sc) + 'px;' +
-          'background-position:' + (-1 * sc) + 'px ' + (-1 * sc) + 'px;' +
-          'transform:rotateY(180deg) translateZ(' + (2.3 * sc) + 'px)"></div></div>';
+        '<div style="position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d;' +
+          'transform:translate3d(0,' + (8 * sc) + 'px,' + (-2.5 * sc) + 'px) rotateY(180deg) ' +
+            'scale3d(1.02,1.01,1.06)">' +
+          caixa3d(capeTex, sc, capaP, 32) +
+        '</div></div>';
   }
   stage.innerHTML = capaHtml + partesHtml;
 
   stage.style.position = 'relative';
   stage.style.height = (32 * sc) + 'px';
   if (sel === '#skinBody') applySkinRotation();
-  else if (!stage.style.transform) stage.style.transform = 'perspective(900px) rotateX(-8deg) rotateY(-22deg)';
+  else if (!stage.style.transform) stage.style.transform = 'perspective(1600px) rotateX(-4deg) rotateY(-22deg)';
 }
 
 /* arraste — uma só implementação, atualizada em rAF pra não engasgar */
 function makeSkinDrag(stageSel, bodySel, onChange) {
   const stage = $(stageSel); if (!stage) return null;
-  const st = { yaw: -22, pitch: -8 };
+  /* pitch quase reto: com -8 a câmera olhava de cima e achatava a cabeça */
+  const st = { yaw: -22, pitch: -4, zoom: 1 };
   let drag = null, frame = 0;
   const paint = () => {
     frame = 0;
     const b = $(bodySel); if (!b) return;
-    b.style.transform = 'perspective(900px) rotateX(' + st.pitch + 'deg) rotateY(' + st.yaw + 'deg)';
+    /* lente longa (1600) em vez de 900: menos distorção de perspectiva,
+       a cabeça deixa de encolher e o corpo para de parecer tombado */
+    b.style.transform = 'perspective(1600px) rotateX(' + st.pitch + 'deg) rotateY(' + st.yaw + 'deg)' +
+      (st.zoom === 1 ? '' : ' scale(' + st.zoom + ')');
   };
   const queue = () => { if (!frame) frame = requestAnimationFrame(paint); };
   stage.addEventListener('pointerdown', (e) => {
@@ -1833,7 +1906,17 @@ function makeSkinDrag(stageSel, bodySel, onChange) {
     window.removeEventListener('pointerup', stop);
     window.removeEventListener('pointercancel', stop);
   }
-  stage.addEventListener('dblclick', () => { st.yaw = -22; st.pitch = -8; queue(); });
+  /* roda do mouse aproxima. O passo é multiplicativo pra o zoom
+     parecer igual perto e longe; somar daria salto no começo. */
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const passo = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    st.zoom = Math.max(0.6, Math.min(4, st.zoom * passo));
+    queue();
+  }, { passive: false });
+
+  /* duplo clique volta tudo ao padrão, zoom incluso */
+  stage.addEventListener('dblclick', () => { st.yaw = -22; st.pitch = -4; st.zoom = 1; queue(); });
   if (onChange) onChange(st, queue);
   return { st, paint: queue };
 }
@@ -1842,6 +1925,152 @@ let skinView = null;
 function applySkinRotation() { if (skinView) skinView.paint(); }
 
 skinView = makeSkinDrag('#skinStage', '#skinBody');
+
+/* ============================================================
+   SERVIDORES FIXOS
+
+   Lista que vai igual pra todo mundo — não é o servers.dat do
+   jogador. Pra mexer, é só editar aqui embaixo.
+
+   Ícone e jogadores online vêm do próprio servidor, pelo Server
+   List Ping (o mesmo handshake da lista de servidores do jogo).
+   Nenhum serviço de terceiro no meio.
+   ============================================================ */
+/* ipStatus só existe quando o endereço público não responde ao ping.
+   O Kaizen é assim: quem joga digita kaizenmc.gg, mas quem responde o
+   Server List Ping é o srv.  O jogador entra pelo público; a consulta
+   de status usa o outro. */
+const SERVIDORES_FIXOS = [
+  { nome: 'HYLEX',  ip: 'pirata.hylex.gg:25594' },
+  { nome: 'KAIZEN', ip: 'kaizenmc.gg', ipStatus: 'srv.kaizenmc.gg' }
+];
+
+/* os que o jogador adiciona ficam só na máquina dele */
+let servidoresMeus;
+try { servidoresMeus = JSON.parse(localStorage.getItem('xyven.servidores') || '[]'); }
+catch (e) { servidoresMeus = []; }
+const salvarServidores = () => {
+  try { localStorage.setItem('xyven.servidores', JSON.stringify(servidoresMeus)); }
+  catch (e) { /* sem storage */ }
+};
+
+const todosServidores = () => SERVIDORES_FIXOS.concat(
+  servidoresMeus.map((s) => Object.assign({}, s, { meu: true }))
+);
+
+function renderServidores(status) {
+  const grade = $('#serversGrid'); if (!grade) return;
+  grade.innerHTML = todosServidores().map((s) => {
+    const st = (status && status[s.ipStatus || s.ip]) || null;
+    const vivo = st && st.online !== null;
+    const linha = !st ? 'consultando…'
+      : (vivo ? st.online.toLocaleString('pt-BR') + ' online' : 'fora do ar');
+    const fundo = (st && st.icone) ? 'background-image:url(' + st.icone + ')' : '';
+    return '<button class="server" data-ip="' + esc(s.ip) + '" title="' + esc(s.ip) + '">' +
+      (s.meu ? '<span class="server__x" data-rm="' + esc(s.ip) + '" title="remover">×</span>' : '') +
+      '<span class="server__icon" style="' + fundo + '"></span>' +
+      '<span class="server__info">' +
+        '<span class="server__name">' + esc(s.nome) + '</span>' +
+        '<span class="server__on"><span class="server__dot' + (vivo ? '' : ' server__dot--off') + '"></span>' +
+          esc(linha) + '</span>' +
+      '</span></button>';
+  }).join('');
+}
+
+/* O que já se sabe sobre cada servidor, mantido entre atualizações:
+   sem isso, a cada minuto a lista inteira voltava pra "consultando…"
+   e só reaparecia junta, no tempo do mais lento. */
+let statusServidores = {};
+
+async function atualizarServidores() {
+  renderServidores(statusServidores);
+  if (!temApi() || !window.api.servidoresStatus) return;
+
+  /* um pedido por servidor, em paralelo: cada card se acende assim que
+     o seu responde, em vez de todos esperarem o último */
+  await Promise.all(todosServidores().map(async (s) => {
+    const alvo = s.ipStatus || s.ip;
+    const r = await window.api.servidoresStatus([alvo]).catch(() => null);
+    if (r && r.ok) {
+      Object.assign(statusServidores, r.status);
+      renderServidores(statusServidores);
+    }
+  }));
+}
+
+/* ---- adicionar servidor ---- */
+const formServidor = (mostrar) => {
+  const f = $('#serverAdd'); if (!f) return;
+  f.hidden = !mostrar;
+  if (mostrar) { $('#newServerNome').value = ''; $('#newServerIp').value = ''; $('#newServerNome').focus(); }
+};
+
+$('#addServerBtn').onclick = (e) => { e.preventDefault(); formServidor($('#serverAdd').hidden); };
+$('#newServerCancel').onclick = () => formServidor(false);
+$('#newServerOk').onclick = () => {
+  const ip = $('#newServerIp').value.trim();
+  /* host[:porta]. sem isso, um endereço torto vira card morto pra sempre */
+  if (!/^[A-Za-z0-9._-]+(:\d{1,5})?$/.test(ip)) {
+    avisarServidor('endereço inválido. use algo como mc.servidor.com ou mc.servidor.com:25565');
+    return;
+  }
+  if (todosServidores().some((s) => s.ip.toLowerCase() === ip.toLowerCase())) {
+    avisarServidor('esse servidor já está na lista.');
+    return;
+  }
+  const nome = ($('#newServerNome').value.trim() || ip.split(':')[0].split('.')[0]).toUpperCase();
+  servidoresMeus.push({ nome: nome, ip: ip });
+  salvarServidores();
+  formServidor(false);
+  atualizarServidores();
+};
+$('#newServerIp').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#newServerOk').click(); });
+$('#newServerNome').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#newServerIp').focus(); });
+
+/* Clique abre o jogo já conectando no servidor.
+   Botão direito copia o IP, pra quem só quer o endereço. */
+document.addEventListener('click', (e) => {
+  /* o × fica dentro do card: sem sair aqui, remover abriria o jogo junto */
+  const x = e.target.closest && e.target.closest('.server__x');
+  if (x) {
+    e.stopPropagation();
+    servidoresMeus = servidoresMeus.filter((s) => s.ip !== x.dataset.rm);
+    salvarServidores();
+    atualizarServidores();
+    return;
+  }
+  const b = e.target.closest && e.target.closest('.server');
+  if (!b) return;
+  if (jogoAberto) { avisarServidor('o Minecraft já está aberto. feche antes de entrar em outro servidor.'); return; }
+  if (jogoAbrindo) return;
+  avisarServidor('abrindo o Minecraft em ' + b.dataset.ip + '…');
+  tocar(b.dataset.ip);
+});
+
+document.addEventListener('contextmenu', async (e) => {
+  const b = e.target.closest && e.target.closest('.server');
+  if (!b) return;
+  e.preventDefault();
+  avisarServidor((await copiar(b.dataset.ip))
+    ? 'IP copiado: ' + b.dataset.ip
+    : 'não consegui copiar. o IP é ' + b.dataset.ip);
+});
+
+let dicaServidorAntes = null, dicaServidorTimer = 0;
+function avisarServidor(txt) {
+  const dica = $('#serversHint'); if (!dica) return;
+  if (dicaServidorAntes === null) dicaServidorAntes = dica.textContent;
+  dica.textContent = txt;
+  clearTimeout(dicaServidorTimer);
+  dicaServidorTimer = setTimeout(() => {
+    dica.textContent = dicaServidorAntes;
+    dicaServidorAntes = null;
+  }, 3000);
+}
+
+atualizarServidores();
+/* atualiza sozinho: número de online envelhece rápido */
+setInterval(atualizarServidores, 60000);
 
 /* ============================================================
    10.d EDITOR DE SKIN — prévia, capas e skins salvas
@@ -1993,14 +2222,47 @@ $('#skinAdd').onclick = () => {
   saveSkins(); renderSkinEditor();
 };
 
-$('#skinApply').onclick = () => {
-  profile.skin = skinDraft;
-  profile.slim = slimDraft;
+$('#skinApply').onclick = async () => {
+  const nick = skinDraft, slim = slimDraft;
+  profile.skin = nick;
+  profile.slim = slim;
   capeApplied = capeDraft;
   saveProfile(); saveSkins(); renderProfile();
   gravarCosmeticos();
   close($('#skinOverlay'));
+  await subirSkinPraMojang(nick, slim);
 };
+
+/* A skin do jogo vem da Mojang, não daqui: sem subir, você troca no
+   launcher e entra no servidor com a antiga. Só dá pra fazer com conta
+   original logada — em conta pirata a escolha continua sendo só local. */
+async function subirSkinPraMojang(nick, slim) {
+  if (!temApi() || !window.api.auth || !window.api.auth.trocarSkin) return;
+  if (!contaMS || contaMS.nick !== state.account) return;   /* pirata: nada a fazer */
+
+  let sessao = contaMS;
+  if (!(sessao.expiraEm > Date.now() + 60000)) {
+    const rn = await window.api.auth.renovar(state.account).catch(() => null);
+    if (rn && rn.ok && rn.conta) { contaMS = rn.conta; sessao = rn.conta; }
+    else { avisarSkin('não consegui renovar a sessão pra trocar a skin. entre de novo na conta.', false); return; }
+  }
+
+  const r = await window.api.auth.trocarSkin({
+    token: sessao.accessToken, url: SKIN_TEX(nick), slim: !!slim
+  }).catch((e) => ({ ok: false, erro: String(e && e.message || e) }));
+
+  if (r && r.ok) avisarSkin('skin de <b>' + esc(nick) + '</b> aplicada na sua conta. vale em qualquer servidor.', true);
+  else avisarSkin('a skin não trocou no jogo: ' + esc((r && r.erro) || 'erro desconhecido'), false);
+}
+
+function avisarSkin(html, ok) {
+  notifs.unshift({
+    ts: Date.now(), read: false, badge: ok ? 'skin-ok' : 'skin-erro',
+    text: (ok ? '<b>SKIN TROCADA</b><br>' : '<b>SKIN NÃO TROCOU</b><br>') + html
+  });
+  notifs = notifs.slice(0, 30);
+  saveNotifs(); renderNotifs(); ringBell();
+}
 
 /* escreve <gameDir>/xyven/cosmetics.json + a textura, pro mod dentro
    do jogo ler. o launcher nao precisa estar aberto depois disso. */

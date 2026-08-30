@@ -15,7 +15,9 @@ export default defineConfig({
         'electron',
         /^node:/,
         'path', 'fs', 'fs/promises', 'crypto', 'child_process',
-        'zlib', 'stream', 'stream/promises', 'os', 'util', 'events'
+        'zlib', 'stream', 'stream/promises', 'os', 'util', 'events',
+        /* ping dos servidores: TCP cru + SRV */
+        'net', 'dns', 'dns/promises'
       ],
     },
   },

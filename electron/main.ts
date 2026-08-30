@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
+import * as servidores from './servidores';
 import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { createHash } from 'crypto';
@@ -18,7 +19,10 @@ function createWindow() {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#eddcbb',
-    icon: join(__dirname, '../public/icon.ico'),
+    /* o vite copia o public/ pra dentro do build, entao o .ico fica ao lado
+       do main.js — tanto em dev quanto empacotado. O '../public' apontava pra
+       .vite/public, que nao existe, e a janela caia no icone padrao do Electron. */
+    icon: join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -241,7 +245,19 @@ function createWindow() {
     catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
   });
   ipcMain.handle('auth:esquecer', (_e, nick: string) => auth.esquecerConta(nick));
+  /* troca a skin no perfil da Mojang — é o que faz valer dentro do jogo */
+  ipcMain.handle('auth:trocarSkin', async (_e, d: { token: string; url: string; slim: boolean }) => {
+    try {
+      await auth.trocarSkin(String(d.token), String(d.url), !!d.slim);
+      return { ok: true };
+    } catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
   ipcMain.handle('auth:temRefresh', (_e, nick: string) => auth.temRefresh(nick));
+  /* status dos servidores fixos: ping direto, sem API de terceiro */
+  ipcMain.handle('servidores:status', async (_e, lista: string[]) => {
+    try { return { ok: true, status: await servidores.pingarVarios((lista || []).map(String)) }; }
+    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
   ipcMain.handle('copiar', (_e, texto: string) => { clipboard.writeText(String(texto || '')); return true; });
   ipcMain.handle('abrirLink', (_e, url: string) => {
     if (/^https:\/\//i.test(url)) shell.openExternal(url);   /* só https sai daqui */

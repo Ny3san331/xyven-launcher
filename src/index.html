@@ -14,8 +14,8 @@
   <!-- ============ HEADER ============ -->
   <header>
     <div class="brand">
-      <div class="brand__mark">
-        <svg width="24" height="24" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"><circle cx="50" cy="50" r="41"></circle><circle cx="50" cy="50" r="20"></circle><circle cx="50" cy="50" r="7" fill="currentColor" stroke="none"></circle></svg>
+      <div class="brand__mark brand__mark--arte">
+        <img src="logo.png" alt="Xyven" width="40" height="40" draggable="false">
       </div>
       <div class="brand__name">XYVEN</div>
       <div class="brand__sticker">SIDE&nbsp;A</div>
@@ -99,11 +99,17 @@
           </div>
         </section>
 
-        <!-- STATUS -->
-        <section class="grid3">
-          <div class="card stat"><span class="stat__label">FITA</span><span class="stat__value" id="statVersion">1.8.9</span><span class="stat__note">perfil padrão</span></div>
-          <div class="card stat"><span class="stat__label">RAM</span><span class="stat__value" id="statMem">2048 MB</span><span class="stat__note">alocada pra JVM</span></div>
-          <div class="card stat"><span class="stat__label">JAVA</span><span class="stat__value" id="statJava">Java 17</span><span class="stat__note">runtime detectado</span></div>
+        <!-- SERVIDORES -->
+        <section style="display:flex;flex-direction:column;gap:16px">
+          <div class="section__head"><h2>Servidores</h2><a href="#" id="addServerBtn">+ ADICIONAR</a></div>
+          <div class="serveradd" id="serverAdd" hidden>
+            <input class="input" id="newServerNome" placeholder="nome" maxlength="18">
+            <input class="input" id="newServerIp" placeholder="ip do servidor" maxlength="120">
+            <button class="btn btn--teal" id="newServerOk">SALVAR</button>
+            <button class="btn" id="newServerCancel">CANCELAR</button>
+          </div>
+          <span class="skin__hint" id="serversHint">clique pra entrar · botão direito copia o IP</span>
+          <div class="servers" id="serversGrid"></div>
         </section>
 
         <!-- NOVIDADES -->
