@@ -522,10 +522,8 @@ $$('[data-open="add"]').forEach(b => b.onclick = () => { close($('#accountMenu')
 /* ---- adicionar conta: original (Microsoft) ou pirata (só nick) ---- */
 const NICK_OK = /^[A-Za-z0-9_]{3,16}$/;
 
-/* ---- login Microsoft: device code ----
-   o usuario aprova no navegador dele; o launcher nunca ve a senha. */
-let msVerificacao = 'https://microsoft.com/link';
-
+/* ---- login Microsoft: fluxo de codigo (o mesmo do CmlLib) ----
+   a Microsoft abre numa janela propria; o launcher nunca ve a senha. */
 function msMostra(passo, { codigo, abrir, espera, erro } = {}) {
   $('#msPasso').textContent = passo;
   $('#msCodigo').hidden = !codigo;
@@ -543,18 +541,11 @@ $('#addOriginal').onclick = async () => {
     return;
   }
   open($('#msOverlay'));
-  msMostra('pedindo o código à Microsoft...');
+  msMostra('entre na janela da Microsoft.', { espera: true });
 
-  const p = await window.api.auth.pedirCodigo();
-  if (!p.ok) { msMostra('não deu pra começar o login.', { erro: p.erro }); return; }
-
-  msVerificacao = p.codigo.verification_uri;
-  msMostra('abra o site da Microsoft e digite este código:', {
-    codigo: p.codigo.user_code, abrir: true, espera: true
-  });
-
-  /* espera a aprovação; o main faz o polling */
-  const res = await window.api.auth.aguardar();
+  const res = await window.api.auth.entrar();
+  /* fechou a janela sem entrar: sai calado, não é erro */
+  if (res.cancelado) { close($('#msOverlay')); return; }
   if (!res.ok) { msMostra('o login não foi concluído.', { erro: res.erro }); return; }
 
   const c = res.conta;
@@ -584,20 +575,6 @@ async function copiar(texto) {
   try { await navigator.clipboard.writeText(texto); return true; } catch (e) { return false; }
 }
 
-/* clicar no codigo copia: e chato digitar 8 caracteres no navegador */
-$('#msCodigo').onclick = async () => {
-  const codigo = $('#msCodigo').textContent.trim();
-  if (!codigo || codigo.startsWith('---')) return;
-  const antes = $('#msPasso').textContent;
-  const ok = await copiar(codigo);
-  $('#msPasso').textContent = ok ? 'código copiado. cole no site da Microsoft.'
-                                 : 'não consegui copiar. digite o código à mão.';
-  setTimeout(() => { if (!$('#msOverlay').hidden) $('#msPasso').textContent = antes; }, 2200);
-};
-
-$('#msCodigo').title = 'clique para copiar';
-
-$('#msAbrir').onclick = () => window.api.abrirLink(msVerificacao);
 $('#msCancelar').onclick = () => {
   if (temApi() && window.api.auth) window.api.auth.abortar();
   close($('#msOverlay'));

@@ -225,19 +225,17 @@ function createWindow() {
   });
 
   /* ---------- Java ---------- */
-  /* ---------- login Microsoft (device code) ---------- */
-  let codigoAtual: any = null;
-  ipcMain.handle('auth:pedirCodigo', async () => {
-    try { codigoAtual = await auth.pedirCodigo(); return { ok: true, codigo: codigoAtual }; }
-    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
-  });
-  ipcMain.handle('auth:aguardar', async () => {
-    if (!codigoAtual) return { ok: false, erro: 'nenhum login em andamento.' };
+  /* ---------- login Microsoft (fluxo de código do CmlLib) ---------- */
+  ipcMain.handle('auth:entrar', async () => {
     const passo = (t: string) => { if (!win.isDestroyed()) win.webContents.send('auth:passo', t); };
-    try { const conta = await auth.concluirLogin(codigoAtual, passo); codigoAtual = null; return { ok: true, conta }; }
-    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+    try {
+      const conta = await auth.entrar(win.isDestroyed() ? null : win, passo);
+      /* null = fechou a janela; não é erro, é desistência */
+      if (!conta) return { ok: false, cancelado: true };
+      return { ok: true, conta };
+    } catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
   });
-  ipcMain.handle('auth:abortar', () => { auth.abortarLogin(); codigoAtual = null; return true; });
+  ipcMain.handle('auth:abortar', () => { auth.abortarLogin(); return true; });
   ipcMain.handle('auth:renovar', async (_e, nick: string) => {
     try { return { ok: true, conta: await auth.renovar(nick) }; }
     catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }

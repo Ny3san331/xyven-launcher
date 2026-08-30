@@ -24,8 +24,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   auth: {
-    pedirCodigo: () => ipcRenderer.invoke('auth:pedirCodigo'),
-    aguardar: () => ipcRenderer.invoke('auth:aguardar'),
+    entrar: () => ipcRenderer.invoke('auth:entrar'),
     abortar: () => ipcRenderer.invoke('auth:abortar'),
     renovar: (nick: string) => ipcRenderer.invoke('auth:renovar', nick),
     esquecer: (nick: string) => ipcRenderer.invoke('auth:esquecer', nick),

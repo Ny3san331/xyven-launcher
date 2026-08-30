@@ -1,19 +1,37 @@
 /* ============================================================
-   LOGIN MICROSOFT — device code.
-   O usuário digita o código no navegador dele; o launcher nunca
-   vê a senha. Só o processo principal fala com a rede.
+   LOGIN MICROSOFT — fluxo de código do CmlLib.Core.
 
-   Cadeia: Microsoft -> Xbox Live -> XSTS -> Minecraft -> perfil.
+   Copiado do CmlLib.Core.Auth.Microsoft (JELoginHandler +
+   XboxAuthNet.Game). Não é o OAuth do Entra ID: é o endpoint
+   antigo do Live, com o title id do próprio launcher oficial
+   do Minecraft. É por isso que funciona — um app registrado
+   por nós no Entra leva 403 da API do Minecraft.
+
+   JELoginHandler.DefaultMicrosoftOAuthClientInfo:
+     ClientId = XboxGameTitles.MinecraftJava
+     Scopes   = XboxAuthConstants.XboxScope
+   CodeFlowLiveApiClient: authorize / token / redirect abaixo.
+
+   O usuário entra numa janela separada; o launcher nunca vê a
+   senha. Só o processo principal fala com a rede.
+
+   Cadeia: Live -> Xbox Live -> XSTS -> Minecraft -> perfil.
    ============================================================ */
-import { app, safeStorage } from 'electron';
+import { app, safeStorage, BrowserWindow } from 'electron';
 import { readFile, writeFile, mkdir, unlink, appendFile } from 'fs/promises';
 import { join, dirname } from 'path';
 
-/* app registrado no Entra ID. Não é segredo: vai dentro do binário. */
-export const CLIENT_ID = '0f601ed2-cbe5-4c04-bf9b-16aabbd69714';
+/* XboxGameTitles.MinecraftJava — o title do launcher oficial. */
+export const CLIENT_ID = '00000000402b5328';
 
-const ESCOPO = 'XboxLive.signin offline_access';
-const OAUTH = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
+/* XboxAuthConstants.XboxScope */
+const ESCOPO = 'service::user.auth.xboxlive.com::MBI_SSL';
+
+/* CodeFlowLiveApiClient */
+const OAUTH_AUTORIZAR = 'https://login.live.com/oauth20_authorize.srf';
+const OAUTH_TOKEN = 'https://login.live.com/oauth20_token.srf';
+const OAUTH_REDIRECT = 'https://login.live.com/oauth20_desktop.srf';
+
 const XBL = 'https://user.auth.xboxlive.com/user/authenticate';
 const XSTS = 'https://xsts.auth.xboxlive.com/xsts/authorize';
 const MC_LOGIN = 'https://api.minecraftservices.com/authentication/login_with_xbox';
@@ -29,78 +47,111 @@ export type ContaMS = {
 };
 
 /* ------------------------------------------------------------
-   passo 1 — pedir o código
-   ------------------------------------------------------------ */
-export type Codigo = {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  interval: number;
-  expires_in: number;
-};
+   passo 1 e 2 — a janela de login
 
-export async function pedirCodigo(): Promise<Codigo> {
-  const r = await fetch(`${OAUTH}/devicecode`, {
+   O CmlLib usa WebView2 aqui, que só existe no Windows. No
+   Electron o equivalente é uma BrowserWindow: mesma página,
+   mesmo redirect, mesmo código no fim.
+
+   A partição é descartável de propósito: sem ela, a segunda
+   conta entra sozinha com a sessão da primeira e o
+   prompt=select_account não adianta.
+   ------------------------------------------------------------ */
+let janelaLogin: BrowserWindow | null = null;
+
+export function abortarLogin() {
+  if (janelaLogin && !janelaLogin.isDestroyed()) janelaLogin.close();
+  janelaLogin = null;
+}
+
+function urlAutorizacao(): string {
+  const q = new URLSearchParams({
+    client_id: CLIENT_ID,
+    scope: ESCOPO,
+    redirect_uri: OAUTH_REDIRECT,
+    response_type: 'code',
+    response_mode: 'query',
+    prompt: 'select_account'
+  });
+  return OAUTH_AUTORIZAR + '?' + q.toString();
+}
+
+/* devolve o code do redirect, ou null se a pessoa fechou a janela */
+function pedirCodigoNaJanela(pai: BrowserWindow | null): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    abortarLogin();
+    const temPai = !!(pai && !pai.isDestroyed());
+    const w = new BrowserWindow({
+      parent: temPai ? (pai as BrowserWindow) : undefined,
+      modal: temPai,
+      width: 520, height: 700, minimizable: false, maximizable: false,
+      autoHideMenuBar: true, title: 'ENTRAR COM A MICROSOFT',
+      webPreferences: {
+        partition: 'msauth-' + Date.now(),   /* sessão limpa a cada login */
+        contextIsolation: true, nodeIntegration: false, sandbox: true
+      }
+    });
+    janelaLogin = w;
+
+    let terminou = false;
+    const acabar = (fn: () => void) => {
+      if (terminou) return;
+      terminou = true;
+      fn();
+      if (!w.isDestroyed()) w.close();
+    };
+
+    /* o redirect é uma página em branco do próprio Live: o que
+       interessa é a query, e ela aparece antes de carregar. */
+    const olhar = (url: string) => {
+      if (!url.startsWith(OAUTH_REDIRECT)) return;
+      const q = new URL(url).searchParams;
+      const code = q.get('code');
+      if (code) return acabar(() => resolve(code));
+      const erro = q.get('error');
+      if (erro) {
+        acabar(() => reject(new Error(traduzOAuth({
+          error: erro, error_description: q.get('error_description')
+        }))));
+      }
+    };
+
+    w.webContents.on('will-redirect', (_e, url) => olhar(url));
+    w.webContents.on('will-navigate', (_e, url) => olhar(url));
+    w.webContents.on('did-navigate', (_e, url) => olhar(url));
+    w.on('closed', () => {
+      janelaLogin = null;
+      if (!terminou) { terminou = true; resolve(null); }
+    });
+
+    w.loadURL(urlAutorizacao());
+  });
+}
+
+/* troca o code pelo token (CodeFlowLiveApiClient.GetAccessToken) */
+async function trocarCodigoPorToken(code: string) {
+  const r = await fetch(OAUTH_TOKEN, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: CLIENT_ID, scope: ESCOPO })
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      scope: ESCOPO,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: OAUTH_REDIRECT
+    })
   });
   const j: any = await r.json();
-  if (!r.ok) throw new Error(traduzOAuth(j));
-  return {
-    device_code: j.device_code,
-    user_code: j.user_code,
-    verification_uri: j.verification_uri || 'https://microsoft.com/link',
-    interval: Math.max(2, Number(j.interval) || 5),
-    expires_in: Number(j.expires_in) || 900
-  };
+  if (!r.ok || !j.access_token) throw new Error(traduzOAuth(j));
+  return { access_token: j.access_token as string, refresh_token: (j.refresh_token || '') as string };
 }
 
 function traduzOAuth(j: any): string {
   const e = j && j.error;
-  if (e === 'unauthorized_client') {
-    return 'o app não está marcado como cliente público no Entra ID ' +
-           '(Manifesto: isFallbackPublicClient = true).';
-  }
-  if (e === 'invalid_client') return 'client_id inválido ou o app foi removido.';
-  if (e === 'expired_token') return 'o código expirou. peça um novo.';
-  if (e === 'authorization_declined') return 'você recusou o acesso na tela da Microsoft.';
+  if (e === 'access_denied') return 'você recusou o acesso na tela da Microsoft.';
+  if (e === 'invalid_grant') return 'a Microsoft recusou o código. tente entrar de novo.';
+  if (e === 'invalid_client') return 'o client_id do login não foi aceito pela Microsoft.';
   return (j && (j.error_description || j.error)) || 'falha ao falar com a Microsoft.';
-}
-
-/* ------------------------------------------------------------
-   passo 2 — esperar o usuário aprovar no navegador
-   ------------------------------------------------------------ */
-let cancelarEspera = false;
-export function abortarLogin() { cancelarEspera = true; }
-
-export async function esperarAprovacao(c: Codigo): Promise<{ access_token: string; refresh_token: string }> {
-  cancelarEspera = false;
-  const limite = Date.now() + c.expires_in * 1000;
-  let intervalo = c.interval * 1000;
-
-  while (Date.now() < limite) {
-    if (cancelarEspera) throw new Error('login cancelado.');
-    await new Promise((r) => setTimeout(r, intervalo));
-    if (cancelarEspera) throw new Error('login cancelado.');
-
-    const r = await fetch(`${OAUTH}/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        client_id: CLIENT_ID,
-        device_code: c.device_code
-      })
-    });
-    const j: any = await r.json();
-
-    if (r.ok && j.access_token) return { access_token: j.access_token, refresh_token: j.refresh_token };
-    if (j.error === 'authorization_pending') continue;      /* ainda digitando */
-    if (j.error === 'slow_down') { intervalo += 5000; continue; }
-    throw new Error(traduzOAuth(j));
-  }
-  throw new Error('o código expirou antes de você entrar. tente de novo.');
 }
 
 /* ------------------------------------------------------------
@@ -111,7 +162,7 @@ async function autenticarXbox(msToken: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
-      Properties: { AuthMethod: 'RPS', SiteName: 'user.auth.xboxlive.com', RpsTicket: 'd=' + msToken },
+      Properties: { AuthMethod: 'RPS', SiteName: 'user.auth.xboxlive.com', RpsTicket: msToken   /* XboxUserTokenRequest manda cru; o 'd=' é só do Entra */ },
       RelyingParty: 'http://auth.xboxlive.com',
       TokenType: 'JWT'
     })
@@ -207,12 +258,15 @@ async function montarConta(msToken: string, passo: Passo = () => {}): Promise<Co
   return { ...perfil, accessToken: mc.accessToken, expiraEm: mc.expiraEm };
 }
 
-export async function concluirLogin(c: Codigo, passo: Passo = () => {}): Promise<ContaMS> {
+export async function entrar(pai: BrowserWindow | null, passo: Passo = () => {}): Promise<ContaMS | null> {
   try {
-    passo('esperando você entrar no navegador...');
-    await anotar('aguardando aprovacao do codigo ' + c.user_code);
-    const t = await esperarAprovacao(c);
-    await anotar('microsoft: aprovado, token recebido');
+    passo('esperando você entrar na janela da Microsoft...');
+    await anotar('abrindo janela de login');
+    const code = await pedirCodigoNaJanela(pai);
+    if (!code) { await anotar('janela fechada pelo usuario'); return null; }
+
+    const t = await trocarCodigoPorToken(code);
+    await anotar('microsoft: token recebido');
 
     const conta = await montarConta(t.access_token, passo);
 
@@ -274,11 +328,12 @@ export async function renovar(nick: string): Promise<ContaMS | null> {
   const refresh = (await lerCofre())[nick.toLowerCase()];
   if (!refresh) return null;
 
-  const r = await fetch(`${OAUTH}/token`, {
+  const r = await fetch(OAUTH_TOKEN, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'refresh_token', client_id: CLIENT_ID, refresh_token: refresh, scope: ESCOPO
+      grant_type: 'refresh_token', client_id: CLIENT_ID, refresh_token: refresh,
+      scope: ESCOPO, redirect_uri: OAUTH_REDIRECT
     })
   });
   const j: any = await r.json();
