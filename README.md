@@ -73,7 +73,7 @@ Se você é desenvolvedor e deseja compilar ou contribuir com o projeto:
 
 ```bash
 # Clone o repositório
-git clone [https://github.com/seu-usuario/xyven-launcher.git](https://github.com/seu-usuario/xyven-launcher.git)
+git clone https://github.com/ny3san331/xyven-launcher.git
 
 # Entre no diretório
 cd xyven-launcher
