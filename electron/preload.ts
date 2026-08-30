@@ -42,6 +42,14 @@ contextBridge.exposeInMainWorld('api', {
   copiar: (texto: string) => ipcRenderer.invoke('copiar', texto),
   servidoresStatus: (lista: string[]) => ipcRenderer.invoke('servidores:status', lista),
 
+  discord: {
+    ligar: () => ipcRenderer.invoke('discord:ligar'),
+    estado: (e: { jogando: boolean; versao?: string; servidor?: string; mostrarFita: boolean }) =>
+      ipcRenderer.invoke('discord:estado', e),
+    /* faltava: sem isto o toggle nao tinha como apagar a presenca */
+    desligar: () => ipcRenderer.invoke('discord:desligar'),
+  },
+
   java: {
     detectar: () => ipcRenderer.invoke('java:detectar'),
     exigido: (versao: string) => ipcRenderer.invoke('java:exigido', versao),

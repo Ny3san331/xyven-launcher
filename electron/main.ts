@@ -3,6 +3,7 @@ import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
 import * as servidores from './servidores';
+import * as discord from './discord';
 import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { createHash } from 'crypto';
@@ -19,15 +20,28 @@ function createWindow() {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#eddcbb',
-    /* o vite copia o public/ pra dentro do build, entao o .ico fica ao lado
-       do main.js — tanto em dev quanto empacotado. O '../public' apontava pra
-       .vite/public, que nao existe, e a janela caia no icone padrao do Electron. */
     icon: join(__dirname, 'icon.ico'),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
       sandbox: true,
     },
+    show: false, // não mostra até estar pronto
+  });
+
+  win.once('ready-to-show', () => {
+    console.log('[main] window ready-to-show');
+    win.show();
+  });
+
+  win.on('closed', () => console.log('[main] window closed'));
+
+  win.webContents.on('did-fail-load', (e, code, desc) => {
+    console.error('[main] did-fail-load:', code, desc);
+  });
+
+  win.webContents.on('render-process-gone', (e, details) => {
+    console.error('[main] render-process-gone:', details);
   });
 
   // Handlers DENTRO do escopo onde 'win' existe
@@ -258,6 +272,11 @@ function createWindow() {
     try { return { ok: true, status: await servidores.pingarVarios((lista || []).map(String)) }; }
     catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
   });
+
+  /* ---------- Discord Rich Presence ---------- */
+  ipcMain.handle('discord:ligar', () => { discord.ligar(); return true; });
+  ipcMain.handle('discord:estado', (_e, estado: any) => { discord.definirEstado(estado); return true; });
+  ipcMain.handle('discord:desligar', () => { discord.desligar(); return true; });
   ipcMain.handle('copiar', (_e, texto: string) => { clipboard.writeText(String(texto || '')); return true; });
   ipcMain.handle('abrirLink', (_e, url: string) => {
     if (/^https:\/\//i.test(url)) shell.openExternal(url);   /* só https sai daqui */
@@ -390,3 +409,7 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { console.log('[main] before-quit'); discord.desligar(); });
+
+process.on('uncaughtException', (e) => console.error('[main] uncaughtException:', e));
+process.on('unhandledRejection', (e) => console.error('[main] unhandledRejection:', e));

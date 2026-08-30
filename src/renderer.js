@@ -646,6 +646,20 @@ $('#panel-toggles').addEventListener('click', (e) => {
   item.on = !item.on; b.classList.toggle('is-on', item.on);
   if (item.key === 'theme') applyTheme(item.on);
   if (item.key === 'autostart') aplicarAutostart(item.on, b);
+  if (item.key === 'rpc') {
+    if (temApi() && window.api.discord) {
+      if (item.on) {
+        window.api.discord.ligar();
+        window.api.discord.estado({ jogando: jogoAberto, versao: state.version, servidor: ondeEstou?.nome, mostrarFita: CONFIG.toggles.discord.find(t => t.key === 'rpcTape')?.on });
+      } else {
+        /* apaga a presenca em vez de trocar o texto dela */
+        window.api.discord.desligar();
+      }
+    }
+  }
+  if (item.key === 'rpcTape' && temApi() && window.api.discord) {
+    window.api.discord.estado({ jogando: jogoAberto, versao: state.version, servidor: ondeEstou?.nome, mostrarFita: item.on });
+  }
   salvarToggles();
 });
 
@@ -796,6 +810,20 @@ function fecharSessao() {
 function entrarEm(chave, nome, addr) {
   sairDoServidor();
   ondeEstou = { chave, nome, addr, desde: Date.now() };
+
+  /* Discord Rich Presence — atualiza com o servidor */
+  if (temApi() && window.api.discord && jogoAberto) {
+    const rpcOn = CONFIG.toggles.discord.find(t => t.key === 'rpc')?.on;
+    const rpcTapeOn = CONFIG.toggles.discord.find(t => t.key === 'rpcTape')?.on;
+    if (rpcOn) {
+      window.api.discord.estado({
+        jogando: true,
+        versao: state.version,
+        servidor: nome,
+        mostrarFita: !!rpcTapeOn
+      });
+    }
+  }
 }
 
 function sairDoServidor() {
@@ -810,6 +838,20 @@ function sairDoServidor() {
   reg.nome = onde.nome; reg.addr = onde.addr;
   h.servidores[onde.chave] = reg;
   salvarHoras();
+
+  /* Discord Rich Presence — volta para "No menu" ou só a fita */
+  if (temApi() && window.api.discord && jogoAberto) {
+    const rpcOn = CONFIG.toggles.discord.find(t => t.key === 'rpc')?.on;
+    const rpcTapeOn = CONFIG.toggles.discord.find(t => t.key === 'rpcTape')?.on;
+    if (rpcOn) {
+      window.api.discord.estado({
+        jogando: true,
+        versao: state.version,
+        servidor: undefined,
+        mostrarFita: !!rpcTapeOn
+      });
+    }
+  }
 }
 
 /* le cada linha do jogo procurando troca de servidor */
@@ -924,6 +966,22 @@ function marcarTocando(tocando) {
   /* se deu erro, o console fica na tela pro usuario ler */
   if (!tocando && !erroDoJogo) close($('#consoleOverlay'));
   if ($('#consoleOverlay') && !$('#consoleOverlay').hidden) contarConsole();
+
+  /* Discord Rich Presence */
+  if (temApi() && window.api.discord) {
+    const rpcOn = CONFIG.toggles.discord.find(t => t.key === 'rpc')?.on;
+    const rpcTapeOn = CONFIG.toggles.discord.find(t => t.key === 'rpcTape')?.on;
+    if (rpcOn) {
+      window.api.discord.estado({
+        jogando: tocando,
+        versao: state.version,
+        servidor: ondeEstou?.nome,
+        mostrarFita: !!rpcTapeOn
+      });
+    } else {
+      window.api.discord.estado({ jogando: false, mostrarFita: false });
+    }
+  }
 }
 
 function falhaAoTocar(msg) {
@@ -1197,6 +1255,16 @@ restaurarToggles();
 renderStats(); renderVersions(); renderJava(); renderToggles(); renderAccounts(); renderMemory();
 sincronizarAutostart();
 carregarJava();
+
+/* Discord Rich Presence — inicia se o toggle estiver ligado */
+if (temApi() && window.api.discord) {
+  const rpcOn = CONFIG.toggles.discord.find(t => t.key === 'rpc')?.on;
+  const rpcTapeOn = CONFIG.toggles.discord.find(t => t.key === 'rpcTape')?.on;
+  if (rpcOn) {
+    window.api.discord.ligar();
+    window.api.discord.estado({ jogando: jogoAberto, versao: state.version, servidor: ondeEstou?.nome, mostrarFita: !!rpcTapeOn });
+  }
+}
 
 /* ============================================================
    11. TEMA ESCURO
