@@ -41,6 +41,12 @@ contextBridge.exposeInMainWorld('api', {
   cosmeticos: (dados: unknown) => ipcRenderer.invoke('cosmeticos:aplicar', dados),
   copiar: (texto: string) => ipcRenderer.invoke('copiar', texto),
   servidoresStatus: (lista: string[]) => ipcRenderer.invoke('servidores:status', lista),
+  xyven: {
+    identificar: (token: string) => ipcRenderer.invoke('xyven:identificar', token),
+    gift: (token: string, alvo: string, item: string) => ipcRenderer.invoke('xyven:gift', token, alvo, item),
+    tirar: (token: string, alvo: string, item: string) => ipcRenderer.invoke('xyven:tirar', token, alvo, item),
+    grupo: (token: string, alvo: string, grupo: string) => ipcRenderer.invoke('xyven:grupo', token, alvo, grupo),
+  },
   prints: {
     listar: (gameDir: string) => ipcRenderer.invoke('prints:listar', gameDir),
     ler: (gameDir: string, arquivo: string) => ipcRenderer.invoke('prints:ler', gameDir, arquivo),

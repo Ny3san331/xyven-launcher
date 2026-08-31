@@ -4,6 +4,7 @@ import * as mc from './minecraft';
 import * as auth from './auth';
 import * as servidores from './servidores';
 import * as prints from './prints';
+import * as xyvenapi from './xyvenapi';
 import * as discord from './discord';
 import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
@@ -28,6 +29,14 @@ function createWindow() {
       sandbox: true,
     },
     show: false, // não mostra até estar pronto
+  });
+
+  /* Repassa o console da janela pro terminal. Sem isto, todo console.log
+     do renderer morre no DevTools — e diagnosticar pelo terminal vira
+     adivinhacao, porque a ausencia de log parece ausencia de execucao. */
+  win.webContents.on('console-message', (_e, nivel, texto) => {
+    const marca = nivel >= 2 ? '[renderer:erro]' : '[renderer]';
+    console.log(marca + ' ' + texto);
   });
 
   win.once('ready-to-show', () => {
@@ -278,6 +287,15 @@ function createWindow() {
   ipcMain.handle('discord:ligar', () => { discord.ligar(); return true; });
   ipcMain.handle('discord:estado', (_e, estado: any) => { discord.definirEstado(estado); return true; });
   ipcMain.handle('discord:desligar', () => { discord.desligar(); return true; });
+  /* API do Xyven: cargos e capas compartilhados entre as máquinas */
+  ipcMain.handle('xyven:identificar', (_e, token: string) => xyvenapi.identificar(String(token)));
+  ipcMain.handle('xyven:gift', (_e, token: string, alvo: string, item: string) =>
+    xyvenapi.gift(String(token), String(alvo), String(item)));
+  ipcMain.handle('xyven:tirar', (_e, token: string, alvo: string, item: string) =>
+    xyvenapi.tirar(String(token), String(alvo), String(item)));
+  ipcMain.handle('xyven:grupo', (_e, token: string, alvo: string, grupo: string) =>
+    xyvenapi.grupo(String(token), String(alvo), String(grupo)));
+
   /* prints do jogo: lista leve, imagem sob demanda */
   ipcMain.handle('prints:listar', async (_e, gameDir: string) => {
     try { return { ok: true, prints: await prints.listar(mc.pastaPerfil(String(gameDir))) }; }

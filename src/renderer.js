@@ -562,6 +562,7 @@ $('#addOriginal').onclick = async () => {
   saveAccounts();
   applyGroup(); renderStats(); renderProfile(); renderAccounts();
   close($('#msOverlay'));
+  sincronizarConta();
 };
 
 /* o main narra cada etapa: quando falha, da pra ver onde parou */
@@ -712,6 +713,9 @@ $('#accountList').addEventListener('click', (e) => {
   profile.nick = state.account; profile.skin = state.account;
   saveAccounts();
   applyGroup(); renderStats(); renderProfile(); close($('#switchOverlay'));
+  /* cargos e capas sao por conta: trocar de conta tem que reperguntar
+     ao servidor, senao a tela fica mostrando o que era da anterior */
+  sincronizarConta();
 });
 
 /* fader de memória (arrastar) */
@@ -1885,7 +1889,7 @@ function buildSkin() { buildSkinInto('#skinBody', profile.skin, 9, capeApplied, 
 function buildSkinInto(sel, nick, sc, capeId, slim) {
   const stage = $(sel); if (!stage) return;
   const tex = SKIN_TEX(nick);
-  const capeDef = capasDaConta.concat(CAPAS_XYVEN).find(c => c.id === capeId);
+  const capeDef = capasDisponiveis().find(c => c.id === capeId);
   const capeTex = (capeDef && capeDef.url) ? String(capeDef.url).replace(/^http:/, 'https:') : '';
 
   /* o modelo vem da Mojang; enquanto não chega, cai no que já se sabia.
@@ -2163,7 +2167,30 @@ const CAPAS_XYVEN = [
   { id: 'enderman',  name: 'ENDERMAN',  arquivo: 'enderman.png' }
 ].map((c) => Object.assign({}, c, { url: 'capes/' + c.arquivo, origem: 'launcher' }));
 
+/* declarado aqui em cima, e nao junto de sincronizarConta: capasDisponiveis()
+   roda no primeiro desenho da tela, antes daquele bloco. um let depois do uso
+   e TDZ, e isso ja quebrou este arquivo mais de uma vez. */
+let contaRemota = null;
+
 let capasDaConta = [];        /* [{ id, name, url }] — vem da Mojang */
+
+/* Capas que ESTA conta pode usar.
+
+   Da Mojang vem o que a pessoa realmente tem — capa de evento, de
+   migracao, o que for. Do launcher, so o que foi dado por /gift e
+   esta gravado no servidor.
+
+   Antes o catalogo inteiro do client aparecia pra todo mundo, o que
+   fazia da capa um enfeite sem valor: ninguem "ganha" algo que ja
+   estava ali. Agora ganhar significa alguma coisa.
+
+   Conta pirata nao tem registro no servidor, entao fica so com o que
+   a Mojang der — ou seja, nada. E de proposito: sem UUID nao da pra
+   provar de quem e a capa, e qualquer um que digitasse o nick a teria. */
+function capasDisponiveis() {
+  const liberadas = (contaRemota && Array.isArray(contaRemota.capas)) ? contaRemota.capas : [];
+  return capasDaConta.concat(CAPAS_XYVEN.filter((c) => liberadas.includes(c.id)));
+}
 let contaMS = null;           /* conta Microsoft logada nesta sessao */
 let contaEhPremium = false;
 
@@ -2210,15 +2237,15 @@ const saveSkins = () => { try { localStorage.setItem('xyven.skins', JSON.stringi
 
 function renderSkinEditor() {
   $('#skinEdName').textContent = skinDraft;
-  const escolhida = [{ id: 'none', name: 'sem capa' }].concat(capasDaConta, CAPAS_XYVEN).find(c => c.id === capeDraft);
+  const escolhida = [{ id: 'none', name: 'sem capa' }].concat(capasDisponiveis()).find(c => c.id === capeDraft);
   $('#skinEdMeta').textContent = 'capa: ' + ((escolhida && escolhida.name) || 'sem capa').toLowerCase() + ' · arraste pra girar';
-  const totalCapas = capasDaConta.length + CAPAS_XYVEN.length;
+  const totalCapas = capasDisponiveis().length;
   $('#capeCount').textContent = totalCapas + (totalCapas === 1 ? ' capa' : ' capas')
     + (capasDaConta.length ? '' : (contaEhPremium ? ' · nenhuma da conta' : ' · só do launcher'));
   $('#skinCount').textContent = savedSkins.length + ' salvas';
 
   /* lista = SEM CAPA + o que a conta realmente tem */
-  const lista = [{ id: 'none', name: 'SEM CAPA', url: '' }].concat(capasDaConta, CAPAS_XYVEN);
+  const lista = [{ id: 'none', name: 'SEM CAPA', url: '' }].concat(capasDisponiveis());
   const semNenhuma = capasDaConta.length === 0;
   const X = '<span class="cape__x"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>';
 
@@ -2257,7 +2284,7 @@ $('#openSkinEditor').onclick = () => {
   open($('#skinOverlay'));
   /* busca na Mojang e redesenha quando responder */
   carregarCapas(profile.nick).then(() => {
-    if (!capasDaConta.concat(CAPAS_XYVEN).some((c) => c.id === capeDraft)) capeDraft = 'none';
+    if (!capasDisponiveis().some((c) => c.id === capeDraft)) capeDraft = 'none';
     renderSkinEditor();
   });
 };
@@ -2303,6 +2330,24 @@ $('#skinApply').onclick = async () => {
   await subirSkinPraMojang(nick, slim);
 };
 
+/* Token válido da conta ativa, ou null se for pirata / não der pra renovar.
+   Vale pra tudo que precisa provar quem você é: subir skin, falar com a API. */
+async function tokenAtual() {
+  if (!temApi() || !window.api.auth) return null;
+  if (ehPirata(state.account)) return null;          /* pirata nao tem o que provar */
+
+  /* o que ja esta em memoria, se ainda vale */
+  if (contaMS && contaMS.nick === state.account && contaMS.expiraEm > Date.now() + 60000) {
+    return contaMS.accessToken;
+  }
+  /* senao renova pelo refresh guardado. No boot o contaMS e SEMPRE null
+     (so um login novo o preenche), entao sem este caminho o launcher
+     nunca falaria com a API depois de reiniciar. */
+  const rn = await window.api.auth.renovar(state.account).catch(() => null);
+  if (rn && rn.ok && rn.conta) { contaMS = rn.conta; return rn.conta.accessToken; }
+  return null;
+}
+
 /* A skin do jogo vem da Mojang, não daqui: sem subir, você troca no
    launcher e entra no servidor com a antiga. Só dá pra fazer com conta
    original logada — em conta pirata a escolha continua sendo só local. */
@@ -2338,7 +2383,7 @@ function avisarSkin(html, ok) {
    do jogo ler. o launcher nao precisa estar aberto depois disso. */
 async function gravarCosmeticos() {
   if (!temApi() || !window.api.cosmeticos) return;
-  const capa = capasDaConta.concat(CAPAS_XYVEN).find((c) => c.id === capeApplied) || null;
+  const capa = capasDisponiveis().find((c) => c.id === capeApplied) || null;
   try {
     await window.api.cosmeticos({
       gameDir: state.dir || $('#dirInput').value,
@@ -2348,7 +2393,11 @@ async function gravarCosmeticos() {
       capa: capa ? { id: capa.id, origem: capa.origem || 'mojang', arquivo: capa.arquivo || null, url: capa.url } : null,
       /* o catalogo inteiro: sem isto o launcher so copiava a capa escolhida,
          e o menu do mod dentro do jogo listava uma opcao so */
-      catalogo: CAPAS_XYVEN.map((c) => ({ id: c.id, name: c.name, arquivo: c.arquivo }))
+      /* so o que a conta tem: o menu do B dentro do jogo le este catalogo,
+         e listar capa bloqueada seria mostrar o que nao da pra usar */
+      catalogo: CAPAS_XYVEN
+        .filter((c) => capasDisponiveis().some((d) => d.id === c.id))
+        .map((c) => ({ id: c.id, name: c.name, arquivo: c.arquivo }))
     });
   } catch (e) { console.warn('não consegui gravar os cosméticos', e); }
 }
@@ -2533,6 +2582,80 @@ document.addEventListener('keydown', (e) => {
    a lista voltava sempre sem nada. Quem dispara e a propria restauracao. */
 
 /* ============================================================
+   CONTA NO SERVIDOR
+
+   Cargos e capas moram no Supabase, não mais só nesta máquina.
+   O launcher pergunta no boot e guarda o resultado; se a API
+   estiver fora, o cache manda.
+
+   Isso importa mais do que parece: sem cache, uma queda de rede
+   faria todos os cargos sumirem da tela como se tivessem sido
+   removidos. A API separa "não consegui falar" de "você não tem",
+   e aqui só a segunda apaga alguma coisa.
+   ============================================================ */
+const cacheContaChave = (nick) => 'xyven.remoto.' + String(nick).toLowerCase();
+
+function lerCacheConta(nick) {
+  try { return JSON.parse(localStorage.getItem(cacheContaChave(nick)) || 'null'); }
+  catch (e) { return null; }
+}
+function gravarCacheConta(nick, dados) {
+  try { localStorage.setItem(cacheContaChave(nick), JSON.stringify(dados)); }
+  catch (e) { /* sem storage */ }
+}
+
+/* joga o que veio do servidor na lista local, que é quem pinta os
+   selos e libera o rail do dev */
+function aplicarConta(c) {
+  if (!c || !c.nick) return;
+  let m = memberOf(c.nick);
+  if (!m) { m = { nick: c.nick, group: 'player', badges: [] }; members.push(m); }
+  m.nick = c.nick;
+  m.group = c.grupo || 'player';
+  m.badges = Array.isArray(c.cargos) ? c.cargos.slice() : [];
+  saveMembers();
+  applyGroup(); renderProfile(); renderAccounts();
+  /* a lista de capas depende do que o servidor liberou; se o editor
+     estiver aberto ele precisa se redesenhar com o resultado novo */
+  if (!$('#skinOverlay').hidden) renderSkinEditor();
+}
+
+
+async function sincronizarConta() {
+  if (!temApi() || !window.api.xyven) return;
+
+  const token = await tokenAtual();
+  if (!token) {
+    /* Falar alto aqui foi decisao consciente: este caminho ja falhou em
+       silencio duas vezes (TDZ, e refresh vencido) e nos dois casos o
+       sintoma foi identico — nada acontece, nenhum sinal. */
+    console.log('[xyven] sem token para ' + state.account +
+      (ehPirata(state.account) ? ' (conta pirata)' : ' (renovacao falhou — entre de novo na conta)'));
+    return;
+  }
+
+  const r = await window.api.xyven.identificar(token).catch(() => null);
+  if (r && r.ok) {
+    contaRemota = r.dados;
+    gravarCacheConta(r.dados.nick, r.dados);
+    aplicarConta(r.dados);
+    console.log('[xyven] ' + r.dados.nick + ': grupo=' + r.dados.grupo +
+      ' cargos=[' + (r.dados.cargos || []).join(',') + ']' +
+      ' capas=[' + (r.dados.capas || []).join(',') + ']');
+    return;
+  }
+
+  console.log('[xyven] a API nao respondeu: ' + ((r && r.erro) || 'erro desconhecido'));
+  /* servidor fora do ar: usa o que sabiamos da ultima vez */
+  const guardado = lerCacheConta(state.account);
+  if (guardado) {
+    contaRemota = guardado;
+    aplicarConta(guardado);
+    console.log('[xyven] usando o cache local.');
+  }
+}
+
+/* ============================================================
    TERMINAL DO DEV
 
    Substituiu o painel de cargos com cliques. A ideia é a mesma
@@ -2588,6 +2711,11 @@ const termErro = (t) => termLinha(t, 'erro');
 const termDim = (t) => termLinha(t, 'dim');
 
 const idsDeCargo = () => ALL_BADGES.map((b) => b.id);
+const idsDeCapa = () => CAPAS_XYVEN.map((c) => c.id);
+/* o servidor aceita cargo e capa no mesmo comando; o terminal precisa
+   conhecer os dois, senao recusa antes mesmo de perguntar */
+const ehItemValido = (x) => idsDeCargo().includes(x) || idsDeCapa().includes(x);
+const listaDeItens = () => 'cargos: ' + idsDeCargo().join(', ') + ' · capas: ' + idsDeCapa().join(', ');
 
 function descreverMembro(m) {
   const cargos = m.badges.length ? m.badges.join(', ') : '—';
@@ -2602,7 +2730,7 @@ const COMANDOS = [
       termOk('comandos:');
       COMANDOS.forEach((c) => termOk('  ' + c.uso.padEnd(30) + c.ajuda));
       termDim('');
-      termDim('cargos válidos: ' + idsDeCargo().join(', '));
+      termDim(listaDeItens());
       termDim('grupos válidos: player, dev');
     }
   },
@@ -2639,24 +2767,54 @@ const COMANDOS = [
   },
   {
     nome: 'grupo', uso: '/grupo <nick> <player|dev>', ajuda: 'muda o grupo da conta',
-    roda: (a) => {
+    roda: async (a) => {
       if (a.length < 2) return termErro('uso: /grupo <nick> <player|dev>');
       const grupo = a[1].toLowerCase();
       if (grupo !== 'player' && grupo !== 'dev') return termErro('grupo inválido. use player ou dev.');
+      const token = await tokenAtual();
+      if (token && window.api.xyven) {
+        const r = await window.api.xyven.grupo(token, a[0], grupo).catch(() => null);
+        if (r && r.ok) {
+          termOk(r.dados.nick + ' agora é ' + r.dados.grupo + '.');
+          if (r.dados.nick.toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
+          return;
+        }
+        return termErro((r && r.erro) || 'não consegui falar com a API.');
+      }
+
       const m = dadosDev.achar(a[0]);
       if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
       m.group = grupo;
       dadosDev.gravar();
       termOk(m.nick + ' agora é ' + grupo + '.');
+      termDim('sem conta original logada: isto valeu só nesta máquina.');
     }
   },
   {
-    nome: 'gift', uso: '/gift <nick> <cargo>', ajuda: 'dá um cargo pra conta',
-    roda: (a) => {
-      if (a.length < 2) return termErro('uso: /gift <nick> <cargo>');
+    nome: 'gift', uso: '/gift <nick> <item>', ajuda: 'dá um cargo ou capa',
+    roda: async (a) => {
+      if (a.length < 2) return termErro('uso: /gift <nick> <item>');
       const cargo = a[1].toLowerCase();
-      if (!idsDeCargo().includes(cargo)) {
-        return termErro('cargo inválido. os que existem: ' + idsDeCargo().join(', '));
+      if (!ehItemValido(cargo)) return termErro('"' + cargo + '" não existe. ' + listaDeItens());
+      /* Servidor primeiro: e ele que faz o item valer no launcher da
+         outra pessoa. So cai no local quando nao ha conta original. */
+      const token = await tokenAtual();
+      if (token && window.api.xyven) {
+        const r = await window.api.xyven.gift(token, a[0], cargo).catch(() => null);
+        if (r && r.ok) {
+          termOk(r.dados.nick + (r.dados.jaTinha ? ' já tinha ' : ' recebeu ') + cargo + '.');
+          termDim('vale em qualquer PC — o launcher dele pega no próximo boot.');
+          if (r.dados.nick.toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
+          return;
+        }
+        if (r && r.fora) termErro('a API não respondeu. tentei ' + a[0] + ': ' + r.erro);
+        else if (r) termErro(r.erro);
+        else termErro('não consegui falar com a API.');
+        return;
+      }
+
+      if (idsDeCapa().includes(cargo)) {
+        return termErro('capa só com conta original logada — ela mora no servidor.');
       }
       const m = dadosDev.achar(a[0]);
       if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
@@ -2664,15 +2822,25 @@ const COMANDOS = [
       m.badges.push(cargo);
       dadosDev.gravar();
       termOk(m.nick + ' recebeu ' + cargo + '.');
-      if (m.nick.toLowerCase() !== String(state.account).toLowerCase()) {
-        termDim('lembrete: isto vale só nesta máquina. sem servidor, o launcher de ' + m.nick + ' não vê.');
-      }
+      termDim('sem conta original logada: isto valeu só nesta máquina.');
     }
   },
   {
-    nome: 'tirar', uso: '/tirar <nick> <cargo>', ajuda: 'remove um cargo',
-    roda: (a) => {
-      if (a.length < 2) return termErro('uso: /tirar <nick> <cargo>');
+    nome: 'tirar', uso: '/tirar <nick> <item>', ajuda: 'remove um cargo ou capa',
+    roda: async (a) => {
+      if (a.length < 2) return termErro('uso: /tirar <nick> <item>');
+      if (!ehItemValido(a[1].toLowerCase())) return termErro('"' + a[1] + '" não existe. ' + listaDeItens());
+      const token = await tokenAtual();
+      if (token && window.api.xyven) {
+        const r = await window.api.xyven.tirar(token, a[0], a[1].toLowerCase()).catch(() => null);
+        if (r && r.ok) {
+          termOk(r.dados.item + (r.dados.naoTinha ? ' já não estava em ' : ' saiu de ') + r.dados.nick + '.');
+          if (r.dados.nick.toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
+          return;
+        }
+        return termErro((r && r.erro) || 'não consegui falar com a API.');
+      }
+
       const m = dadosDev.achar(a[0]);
       if (!m) return termErro('não conheço "' + a[0] + '".');
       const cargo = a[1].toLowerCase();
@@ -2788,8 +2956,10 @@ let termHistPos = -1;
 function abrirTerminal() {
   const out = $('#termOut');
   if (out && !out.childElementCount) {
-    termDim('terminal do Xyven — ' + dadosDev.listar().length + ' contas conhecidas');
-    termDim('tudo aqui é local a esta máquina. /help pra começar.');
+    termDim('terminal do Xyven');
+    termDim(contaRemota
+      ? 'ligado ao servidor como ' + contaRemota.nick + ' (' + contaRemota.grupo + '). /help pra começar.'
+      : 'sem conta original logada: os comandos valem só nesta máquina. /help pra começar.');
     termDim('');
   }
   open($('#devOverlay'));
@@ -2941,3 +3111,16 @@ conferirAtualizacaoNoBoot();
 if (!temConta()) setTimeout(() => exigirConta('Entrar para começar'), 400);
 if (profile.nick !== state.account) { profile.nick = state.account; profile.skin = state.account; }
 applyGroup(); renderProfile();
+
+/* ============================================================
+   Ultima linha de proposito.
+
+   `sincronizarConta` depende de `contaMS` e `ehPirata`, declarados
+   com const/let mais acima. Chamada la em cima, ela caía no TDZ —
+   e como e async, o erro virava promessa rejeitada e sumia calada:
+   a API simplesmente nunca era chamada, sem nenhum sinal.
+
+   Aqui embaixo todo mundo ja existe. Continua sem await: se a API
+   estiver dormindo no plano gratis, a tela nao pode esperar.
+   ============================================================ */
+sincronizarConta();
