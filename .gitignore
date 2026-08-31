@@ -45,3 +45,8 @@ PROMPT-MOD-MENU-RSHIFT.md
 PROMPT-MOD-RSHIFT-V2.md
 PROMPT-MOD-RSHIFT-V3.md
 PROMPT-DISCORD-RPC.md
+PROMPT-BACKEND-SUPABASE.md
+
+# artefatos locais do CLI do Supabase e do Deno
+backend/supabase/.temp/
+deno.lock

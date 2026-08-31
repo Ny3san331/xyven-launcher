@@ -1,5 +1,8 @@
-/* POST /grupo — promove ou rebaixa alguém. */
-import { acharAlvo, admin, erro, exigirDev, json, quemEh } from '../_shared/comum.ts';
+/* POST /grupo — promove ou rebaixa alguem.
+
+   Diferente do /gift, isto NAO fica pendente: grupo e permissao, e
+   permissao so pra quem ja provou quem e. Nick sozinho nao basta. */
+import { acharJogador, admin, erro, exigirDev, json, quemEh } from '../_shared/comum.ts';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ erro: 'use POST.' }, 405);
@@ -17,11 +20,14 @@ Deno.serve(async (req) => {
   if (!nick || !grupo) return erro('mande alvo e grupo.');
   if (grupo !== 'player' && grupo !== 'dev') return erro('grupo é player ou dev.');
 
-  const alvo = await acharAlvo(sb, nick);
-  if (!alvo) return erro('"' + nick + '" não existe na Mojang.', 404);
+  const alvo = await acharJogador(sb, nick);
+  if (!alvo) {
+    return erro('"' + nick + '" nunca entrou no launcher com conta original. ' +
+                'grupo não fica pendente — permissão exige conta identificada.', 404);
+  }
 
-  /* Sem esta trava dá pra ficar com zero devs no sistema, e aí a
-     única saída é editar o banco à mão. */
+  /* Sem esta trava da pra ficar com zero devs no sistema, e ai a
+     unica saida e editar o banco a mao. */
   if (alvo.uuid === quem.uuid && grupo !== 'dev') {
     return erro('você não pode se rebaixar. peça pra outro dev.');
   }

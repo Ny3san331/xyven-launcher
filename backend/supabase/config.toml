@@ -1,0 +1,16 @@
+# Mínimo pro CLI reconhecer esta pasta como projeto Supabase.
+# O project_id aqui é só um rótulo local; o projeto de verdade é
+# escolhido pelo --project-ref na hora do deploy.
+project_id = "xyven"
+
+[functions.identificar]
+verify_jwt = false
+
+[functions.gift]
+verify_jwt = false
+
+[functions.grupo]
+verify_jwt = false
+
+[functions.consultar]
+verify_jwt = false

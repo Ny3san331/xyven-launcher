@@ -32,6 +32,7 @@ export type Resposta<T> =
 
 async function chamar<T>(rota: string, token: string, corpo?: unknown): Promise<Resposta<T>> {
   if (!token) return { ok: false, erro: 'sem sessão da Microsoft.', fora: true };
+  /* rota publica: manda o header mesmo assim, ela ignora */
 
   const parar = new AbortController();
   const relogio = setTimeout(() => parar.abort(), LIMITE_MS);
@@ -68,11 +69,16 @@ async function chamar<T>(rota: string, token: string, corpo?: unknown): Promise<
 
 export const identificar = (token: string) => chamar<Conta>('identificar', token);
 
-export const gift = (token: string, alvo: string, item: string) =>
-  chamar<{ nick: string; item: string; tipo: string; jaTinha?: boolean }>('gift', token, { alvo, item });
+/* Leitura publica, sem token: e o unico jeito de uma conta pirata
+   descobrir o que ganhou. Ela nao tem o que provar pra Mojang, entao
+   /identificar nunca funcionaria pra ela. */
+export const consultar = (nick: string) => chamar<Conta>('consultar', 'sem-token', { nick });
 
-export const tirar = (token: string, alvo: string, item: string) =>
-  chamar<{ nick: string; item: string; tipo: string; naoTinha?: boolean }>('tirar', token, { alvo, item });
+export const gift = (token: string, alvo: string, item: string, acao: 'dar' | 'tirar' = 'dar') =>
+  chamar<{
+    nick: string; item: string; tipo: string;
+    jaTinha?: boolean; naoTinha?: boolean; pendente?: boolean; recado?: string;
+  }>('gift', token, { alvo, item, acao });
 
 export const grupo = (token: string, alvo: string, grupo: string) =>
   chamar<{ nick: string; grupo: string }>('grupo', token, { alvo, grupo });

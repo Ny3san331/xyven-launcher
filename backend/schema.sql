@@ -84,3 +84,26 @@ create policy jogadores_leitura on jogadores
 -- Confira antes de rodar:
 --   select uuid, nick, grupo from jogadores;
 -- ============================================================
+
+-- ============================================================
+-- pendentes  (adicionado depois; rode este bloco no SQL Editor)
+--
+-- Item dado a um nick que ainda nao existe na tabela. Fica aqui
+-- ate alguem entrar no launcher com aquele nick.
+--
+-- Por que nao resolver o nick pela Mojang na hora do /gift: nick
+-- de conta pirata costuma existir na Mojang como conta de OUTRA
+-- pessoa. Resolver ali mandava o item, calado, pro estranho.
+-- Guardando por nick e entregando na entrada, quem recebe e quem
+-- de fato usa aquele nome no client.
+-- ============================================================
+create table if not exists pendentes (
+  nick       text primary key,                 -- sempre minusculo
+  cargos     text[] not null default '{}',
+  capas      text[] not null default '{}',
+  por_uuid   text not null,
+  criado_em  timestamptz not null default now()
+);
+
+alter table pendentes enable row level security;
+-- sem politicas: so a service_role (Edge Functions) enxerga

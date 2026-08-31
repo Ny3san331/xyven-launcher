@@ -289,10 +289,9 @@ function createWindow() {
   ipcMain.handle('discord:desligar', () => { discord.desligar(); return true; });
   /* API do Xyven: cargos e capas compartilhados entre as máquinas */
   ipcMain.handle('xyven:identificar', (_e, token: string) => xyvenapi.identificar(String(token)));
-  ipcMain.handle('xyven:gift', (_e, token: string, alvo: string, item: string) =>
-    xyvenapi.gift(String(token), String(alvo), String(item)));
-  ipcMain.handle('xyven:tirar', (_e, token: string, alvo: string, item: string) =>
-    xyvenapi.tirar(String(token), String(alvo), String(item)));
+  ipcMain.handle('xyven:consultar', (_e, nick: string) => xyvenapi.consultar(String(nick)));
+  ipcMain.handle('xyven:gift', (_e, token: string, alvo: string, item: string, acao: string) =>
+    xyvenapi.gift(String(token), String(alvo), String(item), acao === 'tirar' ? 'tirar' : 'dar'));
   ipcMain.handle('xyven:grupo', (_e, token: string, alvo: string, grupo: string) =>
     xyvenapi.grupo(String(token), String(alvo), String(grupo)));
 

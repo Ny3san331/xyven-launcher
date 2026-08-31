@@ -613,6 +613,8 @@ $('#offlineSave').onclick = () => {
   if (CONFIG.accounts.some(a => a.name.toLowerCase() === nick.toLowerCase())) return fail('essa conta já está no launcher.');
   CONFIG.accounts.push({ name: nick, type: 'pirata · offline' });
   state.account = nick;
+  /* conta nova pode ter coisa esperando por ela no servidor */
+  setTimeout(sincronizarConta, 0);
   profile.nick = nick; profile.skin = nick;
   warn.textContent = 'de 3 a 16 caracteres. letras, números e _ apenas. serve só em servidor offline.';
   warn.style.color = '';
@@ -1704,14 +1706,24 @@ catch (e) { profile = Object.assign({}, PROFILE_DEFAULT); }
 const saveProfile = () => { try { localStorage.setItem('xyven.profile', JSON.stringify(profile)); } catch (e) { /* sem storage */ } };
 
 /* ---- cargos por conta. É isso que o painel dev administra. ---- */
-const MEMBERS_DEFAULT = [
-  { nick: 'Ny3san', group: 'dev',    badges: ['dev', 'pro'] },
-  { nick: 'XyvenDev', group: 'dev',    badges: ['dev', 'fundador'] },
-  { nick: 'Kauan',  group: 'player', badges: ['beta'] },
-  { nick: 'Tuti',   group: 'player', badges: [] }
-];
+/* Vazio de proposito. Quem manda em cargo e o Supabase: conta que nao
+   estiver la nao tem nada. Antes havia quatro contas semeadas aqui com
+   selos e grupo dev — o que fazia o launcher conceder por conta propria,
+   sem ninguem ter concedido. Agora o local so guarda o que o servidor
+   ja disse (e serve de cache quando ele nao responde). */
+const MEMBERS_DEFAULT = [];
 
 const freshMembers = () => MEMBERS_DEFAULT.map(m => Object.assign({}, m, { badges: m.badges.slice() }));
+/* Uma limpeza unica: quem ja rodou versao antiga tem as quatro contas
+   semeadas gravadas, e elas continuariam dando cargo sem respaldo do
+   servidor. A marca evita repetir a limpeza a cada boot. */
+try {
+  if (localStorage.getItem('xyven.members.v') !== '2') {
+    localStorage.removeItem('xyven.members');
+    localStorage.setItem('xyven.members.v', '2');
+  }
+} catch (e) { /* sem storage */ }
+
 let members;
 try { members = JSON.parse(localStorage.getItem('xyven.members') || 'null') || freshMembers(); }
 catch (e) { members = freshMembers(); }
@@ -1726,6 +1738,11 @@ function applyGroup() { document.body.dataset.group = groupOf(state.account); }
 
 function renderProfile() {
   $('#profName').textContent = profile.nick;
+  /* Estava escrito "microsoft · premium" direto no HTML, do mock de
+     design, e ninguem nunca sobrescrevia: conta pirata aparecia como
+     premium. O tipo vem da conta ativa. */
+  const contaAtiva = CONFIG.accounts.find((a) => a.name === state.account);
+  $('#profNick').textContent = (contaAtiva && contaAtiva.type) || '—';
   $('#profSince').textContent = 'na fita desde ' + profile.since;
   const av = $('#profAvatar');
   if (av.dataset.skin !== profile.skin) { av.textContent = profile.nick[0]; av.dataset.skin = profile.skin; delete av.dataset.painted; }
@@ -2614,7 +2631,17 @@ function aplicarConta(c) {
   m.group = c.grupo || 'player';
   m.badges = Array.isArray(c.cargos) ? c.cargos.slice() : [];
   saveMembers();
-  applyGroup(); renderProfile(); renderAccounts();
+
+  /* A capa em uso e guardada uma vez so, nao por conta. Trocando de
+     conta, a escolha antiga vinha junto — e aparecia mesmo em quem
+     nao tem aquela capa. Se nao esta liberada, cai pra nenhuma. */
+  if (capeApplied !== 'none' && !capasDisponiveis().some((x) => x.id === capeApplied)) {
+    capeApplied = 'none';
+    capeDraft = 'none';
+    saveSkins();
+  }
+
+  applyGroup(); renderProfile(); renderAccounts(); buildSkin();
   /* a lista de capas depende do que o servidor liberou; se o editor
      estiver aberto ele precisa se redesenhar com o resultado novo */
   if (!$('#skinOverlay').hidden) renderSkinEditor();
@@ -2622,19 +2649,48 @@ function aplicarConta(c) {
 
 
 async function sincronizarConta() {
+  /* Zera ANTES de perguntar. Sem isto, trocar de conta mantinha o
+     contaRemota da anterior enquanto a resposta nao chegava — e se
+     ela nunca chegasse, ficava pra sempre. Foi assim que uma capa
+     da Ny3san apareceu numa conta que nao tinha capa nenhuma. */
+  contaRemota = null;
+  const deQuem = state.account;
+
   if (!temApi() || !window.api.xyven) return;
 
   const token = await tokenAtual();
+
+  /* Conta pirata nao tem token, mas pode ter cosmetico: a leitura dela
+     e publica, pela chave `pirata:<nick>`. Sem isto o /gift gravaria e
+     o launcher dela nunca leria. */
+  if (!token && ehPirata(state.account)) {
+    const rp = await window.api.xyven.consultar(deQuem).catch(() => null);
+    /* trocou de conta enquanto a resposta vinha: joga fora */
+    if (deQuem !== state.account) return;
+    if (rp && rp.ok) {
+      /* grupo vem sempre 'player' do servidor; conta pirata nao manda em nada */
+      contaRemota = rp.dados;
+      gravarCacheConta(state.account, rp.dados);
+      aplicarConta({ ...rp.dados, nick: state.account, grupo: 'player' });
+      console.log('[xyven] ' + state.account + ' (pirata): capas=[' + (rp.dados.capas || []).join(',') + ']');
+    } else {
+      const g = lerCacheConta(state.account);
+      if (g) { contaRemota = g; aplicarConta({ ...g, grupo: 'player' }); }
+      console.log('[xyven] pirata ' + state.account + ': ' + ((rp && rp.erro) || 'sem resposta'));
+    }
+    return;
+  }
+
   if (!token) {
     /* Falar alto aqui foi decisao consciente: este caminho ja falhou em
        silencio duas vezes (TDZ, e refresh vencido) e nos dois casos o
        sintoma foi identico — nada acontece, nenhum sinal. */
-    console.log('[xyven] sem token para ' + state.account +
-      (ehPirata(state.account) ? ' (conta pirata)' : ' (renovacao falhou — entre de novo na conta)'));
+    console.log('[xyven] sem token para ' + state.account + ' (renovacao falhou — entre de novo na conta)');
     return;
   }
 
   const r = await window.api.xyven.identificar(token).catch(() => null);
+  if (deQuem !== state.account) return;
   if (r && r.ok) {
     contaRemota = r.dados;
     gravarCacheConta(r.dados.nick, r.dados);
@@ -2722,201 +2778,190 @@ function descreverMembro(m) {
   return '  ' + m.nick.padEnd(18) + m.group.padEnd(8) + cargos;
 }
 
-/* ---- comandos ---- */
+/* ---- comandos ----
+
+   Tudo que é sobre conta ficou sob /account, com subcomando. Antes
+   eram cinco comandos soltos (/contas, /delconta, /info, /buscar,
+   /grupo) que só se distinguiam por decorar o nome de cada um.
+   ---- */
 const COMANDOS = [
   {
     nome: 'help', uso: '/help', ajuda: 'mostra esta lista',
     roda: () => {
       termOk('comandos:');
-      COMANDOS.forEach((c) => termOk('  ' + c.uso.padEnd(30) + c.ajuda));
+      COMANDOS.forEach((c) => termOk('  ' + c.uso.padEnd(34) + c.ajuda));
+      termDim('');
+      termDim('exemplos:');
+      termDim('  /gift add Fulano caveira        dá a capa; se ele nunca entrou,');
+      termDim('                                  fica guardado até entrar');
+      termDim('  /gift remove Fulano pro');
+      termDim('  /account group Fulano dev');
       termDim('');
       termDim(listaDeItens());
       termDim('grupos válidos: player, dev');
     }
   },
   {
-    nome: 'lista', uso: '/lista', ajuda: 'todas as contas conhecidas',
-    roda: () => {
-      const todos = dadosDev.listar();
-      if (!todos.length) return termDim('nenhuma conta cadastrada.');
-      termOk('  ' + 'NICK'.padEnd(18) + 'GRUPO'.padEnd(8) + 'CARGOS');
-      todos.forEach((m) => termOk(descreverMembro(m)));
-      termDim(todos.length + ' conta' + (todos.length === 1 ? '' : 's'));
-    }
-  },
-  {
-    nome: 'buscar', uso: '/buscar <nick>', ajuda: 'procura por parte do nick',
-    roda: (a) => {
-      if (!a[0]) return termErro('falta o nick. exemplo: /buscar ny3');
-      const q = a[0].toLowerCase();
-      const achou = dadosDev.listar().filter((m) => m.nick.toLowerCase().includes(q));
-      if (!achou.length) return termDim('nada com "' + a[0] + '".');
-      achou.forEach((m) => termOk(descreverMembro(m)));
-    }
-  },
-  {
-    nome: 'info', uso: '/info <nick>', ajuda: 'detalhe de uma conta',
-    roda: (a) => {
-      if (!a[0]) return termErro('falta o nick.');
-      const m = dadosDev.achar(a[0]);
-      if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
-      termOk('nick   ' + m.nick);
-      termOk('grupo  ' + m.group);
-      termOk('cargos ' + (m.badges.length ? m.badges.join(', ') : '—'));
-    }
-  },
-  {
-    nome: 'grupo', uso: '/grupo <nick> <player|dev>', ajuda: 'muda o grupo da conta',
+    nome: 'gift', uso: '/gift add|remove <nick> <item>', ajuda: 'dá ou tira cargo e capa',
     roda: async (a) => {
-      if (a.length < 2) return termErro('uso: /grupo <nick> <player|dev>');
-      const grupo = a[1].toLowerCase();
-      if (grupo !== 'player' && grupo !== 'dev') return termErro('grupo inválido. use player ou dev.');
-      const token = await tokenAtual();
-      if (token && window.api.xyven) {
-        const r = await window.api.xyven.grupo(token, a[0], grupo).catch(() => null);
-        if (r && r.ok) {
-          termOk(r.dados.nick + ' agora é ' + r.dados.grupo + '.');
-          if (r.dados.nick.toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
-          return;
-        }
-        return termErro((r && r.erro) || 'não consegui falar com a API.');
+      const acao = String(a[0] || '').toLowerCase();
+      if (acao !== 'add' && acao !== 'remove') {
+        return termErro('uso: /gift add <nick> <item>   ou   /gift remove <nick> <item>');
       }
+      if (a.length < 3) return termErro('uso: /gift ' + acao + ' <nick> <item>');
 
-      const m = dadosDev.achar(a[0]);
-      if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
-      m.group = grupo;
-      dadosDev.gravar();
-      termOk(m.nick + ' agora é ' + grupo + '.');
-      termDim('sem conta original logada: isto valeu só nesta máquina.');
-    }
-  },
-  {
-    nome: 'gift', uso: '/gift <nick> <item>', ajuda: 'dá um cargo ou capa',
-    roda: async (a) => {
-      if (a.length < 2) return termErro('uso: /gift <nick> <item>');
-      const cargo = a[1].toLowerCase();
-      if (!ehItemValido(cargo)) return termErro('"' + cargo + '" não existe. ' + listaDeItens());
-      /* Servidor primeiro: e ele que faz o item valer no launcher da
-         outra pessoa. So cai no local quando nao ha conta original. */
+      const alvo = a[1];
+      const item = a[2].toLowerCase();
+      if (!ehItemValido(item)) return termErro('"' + item + '" não existe. ' + listaDeItens());
+
       const token = await tokenAtual();
       if (token && window.api.xyven) {
-        const r = await window.api.xyven.gift(token, a[0], cargo).catch(() => null);
+        const r = await window.api.xyven.gift(token, alvo, item, acao === 'add' ? 'dar' : 'tirar')
+          .catch(() => null);
+
         if (r && r.ok) {
-          termOk(r.dados.nick + (r.dados.jaTinha ? ' já tinha ' : ' recebeu ') + cargo + '.');
-          termDim('vale em qualquer PC — o launcher dele pega no próximo boot.');
-          if (r.dados.nick.toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
+          const d = r.dados;
+          if (d.pendente) {
+            termOk(acao === 'add'
+              ? item + ' guardado para ' + d.nick + '.'
+              : item + ' tirado da espera de ' + d.nick + '.');
+            if (acao === 'add') termDim('ninguém entrou com esse nick ainda — ele recebe ao entrar.');
+          } else if (acao === 'add') {
+            termOk(d.nick + (d.jaTinha ? ' já tinha ' : ' recebeu ') + item + '.');
+            termDim('vale em qualquer PC — o launcher dele pega no próximo boot.');
+          } else {
+            termOk(item + (d.naoTinha ? ' já não estava em ' : ' saiu de ') + d.nick + '.');
+          }
+          if (String(d.nick).toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
           return;
         }
-        if (r && r.fora) termErro('a API não respondeu. tentei ' + a[0] + ': ' + r.erro);
-        else if (r) termErro(r.erro);
-        else termErro('não consegui falar com a API.');
+        if (r && r.fora) termErro('a API não respondeu: ' + r.erro);
+        else termErro((r && r.erro) || 'não consegui falar com a API.');
         return;
       }
 
-      if (idsDeCapa().includes(cargo)) {
+      /* ---- sem conta original: só o que é local ---- */
+      if (idsDeCapa().includes(item)) {
         return termErro('capa só com conta original logada — ela mora no servidor.');
       }
-      const m = dadosDev.achar(a[0]);
-      if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
-      if (m.badges.includes(cargo)) return termDim(m.nick + ' já tem ' + cargo + '.');
-      m.badges.push(cargo);
+      const m = dadosDev.achar(alvo);
+      if (!m) return termErro('não conheço "' + alvo + '" e não há sessão pra consultar o servidor.');
+
+      if (acao === 'add') {
+        if (m.badges.includes(item)) return termDim(m.nick + ' já tem ' + item + '.');
+        m.badges.push(item);
+      } else {
+        if (!m.badges.includes(item)) return termDim(m.nick + ' não tem ' + item + '.');
+        m.badges = m.badges.filter((x) => x !== item);
+      }
       dadosDev.gravar();
-      termOk(m.nick + ' recebeu ' + cargo + '.');
+      termOk(m.nick + (acao === 'add' ? ' recebeu ' : ' perdeu ') + item + '.');
       termDim('sem conta original logada: isto valeu só nesta máquina.');
     }
   },
   {
-    nome: 'tirar', uso: '/tirar <nick> <item>', ajuda: 'remove um cargo ou capa',
+    nome: 'account', uso: '/account <sub>', ajuda: 'list · info · find · group · remove',
     roda: async (a) => {
-      if (a.length < 2) return termErro('uso: /tirar <nick> <item>');
-      if (!ehItemValido(a[1].toLowerCase())) return termErro('"' + a[1] + '" não existe. ' + listaDeItens());
-      const token = await tokenAtual();
-      if (token && window.api.xyven) {
-        const r = await window.api.xyven.tirar(token, a[0], a[1].toLowerCase()).catch(() => null);
-        if (r && r.ok) {
-          termOk(r.dados.item + (r.dados.naoTinha ? ' já não estava em ' : ' saiu de ') + r.dados.nick + '.');
-          if (r.dados.nick.toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
-          return;
+      const sub = String(a[0] || '').toLowerCase();
+      const arg = a.slice(1);
+
+      if (sub === 'list') {
+        CONFIG.accounts.forEach((c) => {
+          const ativa = c.name.toLowerCase() === String(state.account).toLowerCase();
+          termOk('  ' + (ativa ? '* ' : '  ') + c.name.padEnd(18) + c.type);
+        });
+        return termDim(CONFIG.accounts.length + ' no launcher   (* = ativa)');
+      }
+
+      if (sub === 'find') {
+        if (!arg[0]) return termErro('uso: /account find <nick>');
+        const q = arg[0].toLowerCase();
+        const achou = dadosDev.listar().filter((m) => m.nick.toLowerCase().includes(q));
+        if (!achou.length) return termDim('nada com "' + arg[0] + '" no que este launcher conhece.');
+        return achou.forEach((m) => termOk(descreverMembro(m)));
+      }
+
+      if (sub === 'info') {
+        if (!arg[0]) return termErro('uso: /account info <nick>');
+        /* o servidor sabe mais que a lista local; pergunta a ele */
+        if (temApi() && window.api.xyven) {
+          const r = await window.api.xyven.consultar(arg[0]).catch(() => null);
+          if (r && r.ok) {
+            const d = r.dados;
+            termOk('nick   ' + d.nick);
+            termOk('cargos ' + ((d.cargos || []).join(', ') || '—'));
+            termOk('capas  ' + ((d.capas || []).join(', ') || '—'));
+            if (d.pendente) termDim('há coisa esperando: essa conta ainda não entrou no launcher.');
+            return;
+          }
         }
-        return termErro((r && r.erro) || 'não consegui falar com a API.');
+        const m = dadosDev.achar(arg[0]);
+        if (!m) return termErro('não conheço "' + arg[0] + '".');
+        termOk('nick   ' + m.nick);
+        termOk('grupo  ' + m.group);
+        return termOk('cargos ' + (m.badges.join(', ') || '—'));
       }
 
-      const m = dadosDev.achar(a[0]);
-      if (!m) return termErro('não conheço "' + a[0] + '".');
-      const cargo = a[1].toLowerCase();
-      if (!m.badges.includes(cargo)) return termDim(m.nick + ' não tem ' + cargo + '.');
-      m.badges = m.badges.filter((x) => x !== cargo);
-      dadosDev.gravar();
-      termOk(cargo + ' saiu de ' + m.nick + '.');
+      if (sub === 'group') {
+        if (arg.length < 2) return termErro('uso: /account group <nick> <player|dev>');
+        const grupo = arg[1].toLowerCase();
+        if (grupo !== 'player' && grupo !== 'dev') return termErro('grupo é player ou dev.');
+
+        const token = await tokenAtual();
+        if (token && window.api.xyven) {
+          const r = await window.api.xyven.grupo(token, arg[0], grupo).catch(() => null);
+          if (r && r.ok) {
+            termOk(r.dados.nick + ' agora é ' + r.dados.grupo + '.');
+            if (String(r.dados.nick).toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
+            return;
+          }
+          return termErro((r && r.erro) || 'não consegui falar com a API.');
+        }
+        const m = dadosDev.achar(arg[0]);
+        if (!m) return termErro('não conheço "' + arg[0] + '".');
+        m.group = grupo;
+        dadosDev.gravar();
+        termOk(m.nick + ' agora é ' + grupo + '.');
+        return termDim('sem conta original logada: isto valeu só nesta máquina.');
+      }
+
+      if (sub === 'remove') {
+        if (!arg[0]) return termErro('uso: /account remove <nick>   (veja em /account list)');
+        const conta = CONFIG.accounts.find((c) => c.name.toLowerCase() === arg[0].toLowerCase());
+        if (!conta) return termErro('"' + arg[0] + '" não está logada neste launcher.');
+
+        /* as mesmas travas do botão de remover conta */
+        if (CONFIG.accounts.length <= 1) return termErro('é a única conta. adicione outra antes.');
+        if (jogoAberto || jogoAbrindo) return termErro('feche o Minecraft antes de remover conta.');
+
+        const alvo = conta.name;
+        if (temApi() && window.api.auth) {
+          try { await window.api.auth.esquecer(alvo); } catch (e) { /* não havia token */ }
+        }
+        if (contaMS && contaMS.nick === alvo) contaMS = null;
+
+        CONFIG.accounts = CONFIG.accounts.filter((c) => c.name !== alvo);
+        if (String(state.account).toLowerCase() === alvo.toLowerCase()) {
+          state.account = CONFIG.accounts[0].name;
+          profile.nick = state.account; profile.skin = state.account;
+          capasDaConta = []; contaEhPremium = false;
+          termDim('era a conta ativa; troquei pra ' + state.account + '.');
+        }
+        saveAccounts(); saveProfile();
+        applyGroup(); renderStats(); renderProfile(); renderAccounts();
+        return termOk(alvo + ' saiu do launcher. o token guardado dela foi apagado.');
+      }
+
+      termErro('subcomando desconhecido.');
+      termDim('use: /account list | info <nick> | find <nick> | group <nick> <grupo> | remove <nick>');
     }
   },
   {
-    nome: 'add', uso: '/add <nick>', ajuda: 'cadastra uma conta',
-    roda: (a) => {
-      if (!a[0]) return termErro('falta o nick.');
-      if (!NICK_OK.test(a[0])) return termErro('nick inválido. 3 a 16 caracteres, letras, números e _.');
-      if (dadosDev.achar(a[0])) return termDim(a[0] + ' já está cadastrado.');
-      dadosDev.criar(a[0]);
-      termOk(a[0] + ' cadastrado como player.');
-    }
-  },
-  {
-    nome: 'rm', uso: '/rm <nick>', ajuda: 'apaga o cadastro da conta',
-    roda: (a) => {
-      if (!a[0]) return termErro('falta o nick.');
-      const m = dadosDev.achar(a[0]);
-      if (!m) return termErro('não conheço "' + a[0] + '".');
-      dadosDev.remover(m.nick);
-      termOk(m.nick + ' removido.');
-    }
-  },
-  {
-    nome: 'contas', uso: '/contas', ajuda: 'contas logadas no launcher',
+    nome: 'cargos', uso: '/cargos', ajuda: 'lista os cargos e capas que existem',
     roda: () => {
-      CONFIG.accounts.forEach((a) => {
-        const ativa = a.name.toLowerCase() === String(state.account).toLowerCase();
-        termOk('  ' + (ativa ? '* ' : '  ') + a.name.padEnd(18) + a.type);
-      });
-      termDim(CONFIG.accounts.length + ' conta' + (CONFIG.accounts.length === 1 ? '' : 's') + '   (* = ativa)');
+      ALL_BADGES.forEach((b) => termOk('  cargo  ' + b.id.padEnd(12) + b.label));
+      CAPAS_XYVEN.forEach((c) => termOk('  capa   ' + c.id.padEnd(12) + c.name));
     }
-  },
-  {
-    nome: 'delconta', uso: '/delconta <nick>', ajuda: 'tira a conta do launcher',
-    roda: async (a) => {
-      if (!a[0]) return termErro('falta o nick. veja em /contas');
-      const conta = CONFIG.accounts.find((c) => c.name.toLowerCase() === a[0].toLowerCase());
-      if (!conta) return termErro('"' + a[0] + '" não está logada no launcher.');
-
-      /* as mesmas travas do botão de remover conta: sem elas dá pra
-         ficar sem conta nenhuma, ou remover a que está jogando */
-      if (CONFIG.accounts.length <= 1) return termErro('é a única conta. adicione outra antes.');
-      if (jogoAberto || jogoAbrindo) return termErro('feche o Minecraft antes de remover conta.');
-
-      const alvo = conta.name;
-      if (temApi() && window.api.auth) {
-        try { await window.api.auth.esquecer(alvo); } catch (e) { /* não havia token */ }
-      }
-      if (contaMS && contaMS.nick === alvo) contaMS = null;
-
-      CONFIG.accounts = CONFIG.accounts.filter((c) => c.name !== alvo);
-      if (String(state.account).toLowerCase() === alvo.toLowerCase()) {
-        state.account = CONFIG.accounts[0].name;
-        profile.nick = state.account; profile.skin = state.account;
-        capasDaConta = []; contaEhPremium = false;
-        termDim('era a conta ativa; troquei pra ' + state.account + '.');
-      }
-      saveAccounts(); saveProfile();
-      applyGroup(); renderStats(); renderProfile(); renderAccounts();
-      termOk(alvo + ' saiu do launcher. o token guardado dela foi apagado.');
-    }
-  },
-  {
-    nome: 'cargos', uso: '/cargos', ajuda: 'lista os cargos que existem',
-    roda: () => ALL_BADGES.forEach((b) => termOk('  ' + b.id.padEnd(12) + b.label))
-  },
-  {
-    nome: 'restaurar', uso: '/restaurar', ajuda: 'volta a lista ao padrão',
-    roda: () => { dadosDev.restaurar(); termOk('lista restaurada.'); }
   },
   {
     nome: 'limpar', uso: '/limpar', ajuda: 'limpa a tela',
