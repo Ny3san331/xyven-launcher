@@ -94,6 +94,38 @@ Deno.serve(async (req) => {
     return json({ ok: true, cargo: data });
   }
 
+  /* ---- tirar ou por UMA permissao, sem mexer nas outras ----
+
+     O `editar` troca a lista inteira, que e o certo pra "o cargo passa
+     a ser exatamente isto". Mas pra tirar uma de cinco obrigava a
+     redigitar as outras quatro — e esquecer uma tirava calado.
+
+     Feito aqui e nao no launcher de proposito: le e grava na mesma
+     requisicao. Se dois devs mexerem no mesmo cargo ao mesmo tempo,
+     ninguem sobrescreve a mudanca do outro sem ver. */
+  if (acao === 'perm') {
+    const modo = String(corpo?.modo || '').toLowerCase();
+    const perm = String(corpo?.permissao || '').trim();
+    if (modo !== 'add' && modo !== 'remove') return erro('use add ou remove.');
+    if (!permValida(perm)) return erro('a permissão "' + perm + '" não existe. veja /perms list.');
+
+    const { data: atual } = await sb
+      .from('cargos').select('permissoes').eq('id', id).maybeSingle();
+    if (!atual) return erro('não existe cargo "' + id + '".', 404);
+
+    const tinha: string[] = atual.permissoes || [];
+    const jaEstava = tinha.includes(perm);
+    if (modo === 'add' && jaEstava) return json({ ok: true, id, permissao: perm, jaTinha: true });
+    if (modo === 'remove' && !jaEstava) return json({ ok: true, id, permissao: perm, naoTinha: true });
+
+    const nova = modo === 'add' ? [...tinha, perm] : tinha.filter((x) => x !== perm);
+
+    const { data, error } = await sb
+      .from('cargos').update({ permissoes: nova }).eq('id', id).select(COLUNAS).single();
+    if (error) return erro(error.message, 500);
+    return json({ ok: true, cargo: data, permissao: perm });
+  }
+
   if (acao === 'apagar') {
     if (!id) return erro('mande o id do cargo.');
 

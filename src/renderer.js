@@ -3390,7 +3390,7 @@ const COMANDOS = [
     }
   },
   {
-    nome: 'cargo', uso: '/cargo <sub>', ajuda: 'list · info · create · edit · delete',
+    nome: 'cargo', uso: '/cargo <sub>', ajuda: 'list · info · create · edit · perm · delete',
     roda: async (a) => {
       const sub = String(a[0] || '').toLowerCase();
       const arg = a.slice(1);
@@ -3454,6 +3454,38 @@ const COMANDOS = [
         return;
       }
 
+      if (sub === 'perm') {
+        const modo = String(arg[0] || '').toLowerCase();
+        const alvoId = String(arg[1] || '').toLowerCase();
+        const perm = String(arg[2] || '');
+        if ((modo !== 'add' && modo !== 'remove') || !alvoId || !perm) {
+          termErro('uso: /cargo perm add|remove <cargo> <permissão>');
+          return termDim('exemplo: /cargo perm remove vip posts.apagar');
+        }
+        if (!PERMISSOES.some((pp) => pp[0] === perm)) {
+          return termErro('permissão "' + perm + '" não existe. veja /perms list.');
+        }
+
+        const token = await tokenAtual();
+        if (!token || !window.api.xyven) {
+          return termErro('precisa de conta original logada — cargo mora no servidor.');
+        }
+        const r = await window.api.xyven
+          .cargo(token, { acao: 'perm', id: alvoId, modo, permissao: perm })
+          .catch(() => null);
+        if (!r || !r.ok) return termErro((r && r.erro) || 'não consegui falar com a API.');
+
+        const d = r.dados;
+        if (d.jaTinha) return termDim(alvoId + ' já tinha ' + perm + '.');
+        if (d.naoTinha) return termDim(alvoId + ' não tinha ' + perm + '.');
+
+        termOk(perm + (modo === 'add' ? ' entrou em ' : ' saiu de ') + alvoId + '.');
+        termDim('agora: ' + ((d.cargo.permissoes || []).join(', ') || 'nenhuma'));
+        await carregarCargos();
+        sincronizarConta();
+        return;
+      }
+
       if (sub === 'delete') {
         if (!arg[0]) return termErro('uso: /cargo delete <id>');
         const id = String(arg[0]).toLowerCase();
@@ -3475,6 +3507,7 @@ const COMANDOS = [
 
       termErro('subcomando desconhecido.');
       termDim('use: /cargo list | info <id> | create <id> <nome> <cor> [perms] | edit | delete');
+      termDim('     /cargo perm add|remove <id> <permissão>   mexe numa só');
       termDim('cores: ' + CORES_VALIDAS.join(', ') + '   (/color help mostra cada uma)');
     }
   },
@@ -3512,6 +3545,7 @@ const COMANDOS = [
       termDim('');
       termDim('as suas: ' + (permissoesAtuais.join(', ') || 'nenhuma'));
       termDim('permissão vive no cargo: /cargo create vip VIP mustard title gift');
+      termDim('tirar uma sem mexer nas outras: /cargo perm remove vip gift');
     }
   },
   {
@@ -3554,13 +3588,64 @@ function abrirTerminal() {
   if (out && !out.childElementCount) {
     termDim('terminal do Xyven');
     termDim(contaRemota
-      ? 'ligado ao servidor como ' + contaRemota.nick + ' (' + contaRemota.grupo + '). /help pra começar.'
+      ? 'ligado ao servidor como ' + contaRemota.nick +
+        ' (' + ((contaRemota.cargos || []).join(', ') || 'sem cargo') + '). /help pra começar.'
       : 'sem conta original logada: os comandos valem só nesta máquina. /help pra começar.');
     termDim('');
   }
   open($('#devOverlay'));
   setTimeout(() => { const i = $('#termIn'); if (i) i.focus(); }, 30);
 }
+
+/* ------------------------------------------------------------
+   MANTER O FOCO NO CAMPO
+
+   O foco era dado uma vez so, ao abrir. Bastava clicar na area de
+   saida, um aviso abrir por cima ou alternar de janela pra digitacao
+   parar de ir a lugar nenhum — e a unica saida era acertar o clique
+   no campo, que e uma faixa fina no rodape.
+   ------------------------------------------------------------ */
+const terminalAberto = () => {
+  const ov = $('#devOverlay');
+  return !!ov && !ov.hidden;
+};
+
+const focarTerminal = () => {
+  const i = $('#termIn');
+  if (i && terminalAberto()) i.focus();
+};
+
+if ($('#devOverlay')) {
+  /* clicar em qualquer lugar do painel volta pro campo, como num
+     terminal de verdade. mouseup e nao click: em click a selecao
+     ainda nao terminou, e roubar o foco no meio cancela o arraste. */
+  $('#devOverlay').addEventListener('mouseup', (e) => {
+    /* selecionou texto pra copiar: deixa quieto */
+    const sel = window.getSelection();
+    if (sel && String(sel).length) return;
+    /* clicou num botao ou noutro campo: o alvo e ele, nao o terminal */
+    if (e.target.closest('button, a, input, textarea, select')) return;
+    focarTerminal();
+  });
+}
+
+/* Comecou a digitar com o foco perdido: em vez de engolir a tecla,
+   leva o foco pro campo e escreve a letra la. Sem isto a primeira
+   letra sumia e a pessoa achava que o teclado tinha travado. */
+document.addEventListener('keydown', (e) => {
+  if (!terminalAberto()) return;
+  const alvo = document.activeElement;
+  if (alvo && /^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)) return;
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+  const i = $('#termIn');
+  if (!i) return;
+  i.focus();
+  if (e.key.length === 1) { i.value += e.key; e.preventDefault(); }
+});
+
+/* voltou pro launcher com o terminal aberto: o foco volta junto */
+window.addEventListener('focus', focarTerminal);
 
 if ($('#termIn')) {
   $('#termIn').addEventListener('keydown', (e) => {
