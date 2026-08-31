@@ -163,6 +163,46 @@ export async function registrarPirata(sb: ReturnType<typeof admin>, nick: string
 }
 
 /* ------------------------------------------------------------
+   avisos — o recado mais recente endereçado a este nick
+
+   Endereçado por nick, e não por uuid, pelo mesmo motivo do /gift:
+   o dev quer mandar recado pra alguém que talvez nunca tenha
+   entrado. Guardado em minúsculo, igual `pendentes`.
+   ------------------------------------------------------------ */
+export async function ultimoAviso(sb: ReturnType<typeof admin>, nick: string) {
+  if (!nick) return null;
+  const { data } = await sb
+    .from('avisos')
+    .select('id, titulo, texto')
+    .eq('alvo', chaveNick(nick))
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data || null;
+}
+
+/* ------------------------------------------------------------
+   campainha
+
+   Carimba a hora na linha da pessoa. O launcher dela escuta essa
+   linha pelo Realtime e refaz a consulta — o evento em si não
+   carrega nada, só diz "olha de novo".
+
+   Se ninguém tem esse nick, o update não pega linha nenhuma: sem
+   linha também não há launcher escutando, então não há o que tocar.
+   Falha aqui nunca derruba a operação — o pior caso é a pessoa ver
+   a novidade no próximo boot, que é como era antes.
+   ------------------------------------------------------------ */
+export async function cutucar(sb: ReturnType<typeof admin>, nick: string) {
+  try {
+    await sb
+      .from('jogadores')
+      .update({ mudou_em: new Date().toISOString() })
+      .ilike('nick', chaveNick(nick));
+  } catch { /* campainha muda: o boot resolve */ }
+}
+
+/* ------------------------------------------------------------
    pendentes
    ------------------------------------------------------------ */
 export async function lerPendente(sb: ReturnType<typeof admin>, nick: string) {

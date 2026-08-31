@@ -81,5 +81,23 @@ export const gift = (token: string, alvo: string, item: string, acao: 'dar' | 't
     jaTinha?: boolean; naoTinha?: boolean; pendente?: boolean; recado?: string;
   }>('gift', token, { alvo, item, acao });
 
+export const title = (token: string, alvo: string, titulo: string, texto: string) =>
+  chamar<{ nick: string; aviso: { id: number; titulo: string; texto: string } }>(
+    'title', token, { alvo, titulo, texto });
+
+export type Post = {
+  id: number; titulo: string; corpo: string; tag: string;
+  fixado: boolean; destaque: boolean; autor_nick: string;
+  criado_em: string; editado_em: string | null;
+};
+
+/* Leitura publica: o mural aparece pra quem nao e dev, e pra conta
+   pirata, que nao tem token pra provar nada. */
+export const listarPosts = () =>
+  chamar<{ posts: Post[] }>('posts', 'sem-token', { acao: 'listar' });
+
+export const post = (token: string, corpo: Record<string, unknown>) =>
+  chamar<{ post?: Post; id?: number }>('posts', token, corpo);
+
 export const grupo = (token: string, alvo: string, grupo: string) =>
   chamar<{ nick: string; grupo: string }>('grupo', token, { alvo, grupo });

@@ -6,7 +6,7 @@
    nao, fica pendente ate alguem entrar com aquele nome. Nao ha
    consulta a Mojang: o nick nao e resolvido pra UUID de estranho. */
 import {
-  acharJogador, admin, comItem, erro, exigirDev, guardarPendente,
+  acharJogador, admin, comItem, cutucar, erro, exigirDev, guardarPendente,
   json, quemEh, semItem, tipoDoItem
 } from '../_shared/comum.ts';
 
@@ -35,6 +35,8 @@ Deno.serve(async (req) => {
   /* ---- ninguem com esse nick ainda: guarda pra depois ---- */
   if (!alvo) {
     const r = await guardarPendente(sb, nick, item, tipo, acao, quem.uuid);
+    /* pode existir linha de homonimo pirata escutando este nick */
+    await cutucar(sb, nick);
     return json({
       ok: true, nick, item, tipo, pendente: true,
       vazio: r.vazio,

@@ -38,6 +38,8 @@ export type OpcoesLancar = {
   userType?: string;
   /* "host" ou "host:porta": o jogo entra direto nesse servidor ao abrir */
   servidor?: string;
+  /* argumentos extras da JVM, crus, como a pessoa digitou nos ajustes */
+  argsJvm?: string;
 };
 
 /* ------------------------------------------------------------
@@ -415,13 +417,60 @@ function argumentosDoJogo(vjson: any, mapa: Record<string, string>): string[] {
   return [];
 }
 
-function argumentosJvm(vjson: any, mapa: Record<string, string>, memoriaMb: number): string[] {
+/* ------------------------------------------------------------
+   Quebra a linha de argumentos em tokens, respeitando aspas.
+
+   `split(' ')` seria mais curto e erraria em caminho com espaço —
+   -Dxyz="C:\Program Files\x" viraria dois argumentos e a JVM
+   recusaria a linha inteira com uma mensagem que não ajuda em nada.
+   ------------------------------------------------------------ */
+export function separarArgs(linha: string): string[] {
+  const fora: string[] = [];
+  let atual = '';
+  let aspas: string | null = null;
+  let tem = false;   /* "" e '' vazios sao argumento valido; string vazia nao */
+
+  for (const c of String(linha || '')) {
+    if (aspas) {
+      if (c === aspas) { aspas = null; } else { atual += c; }
+      continue;
+    }
+    if (c === '"' || c === "'") { aspas = c; tem = true; continue; }
+    /* espaco em branco de qualquer tipo separa argumentos */
+    if (/\s/.test(c)) {
+      if (atual || tem) { fora.push(atual); atual = ''; tem = false; }
+      continue;
+    }
+    atual += c;
+  }
+  if (atual || tem) fora.push(atual);
+  return fora;
+}
+
+function argumentosJvm(
+  vjson: any,
+  mapa: Record<string, string>,
+  memoriaMb: number,
+  argsJvm?: string
+): string[] {
   const base = [
     `-Xmx${memoriaMb}M`,
     '-Xms512M',
     /* tampa o Log4Shell nas versões antigas */
     '-Dlog4j2.formatMsgNoLookups=true'
   ];
+
+  /* Entram AQUI: depois dos padrões, antes do que a versão exige.
+     Depois dos padrões pra que -Xmx do usuário vença o cursor (a JVM
+     fica com a última ocorrência). Antes do bloco da versão porque
+     -cp e -Djava.library.path saem de lá e não podem ser empurrados
+     pra longe do que os usa. */
+  for (const a of separarArgs(argsJvm || '')) {
+    /* -cp trocado na mao troca o classpath inteiro e o jogo nem abre.
+       Quem quer mexer nisso nao usa uma caixa de texto no launcher. */
+    if (a === '-cp' || a === '-classpath') continue;
+    base.push(a);
+  }
   if (vjson.arguments?.jvm) {
     for (const a of vjson.arguments.jvm) {
       if (typeof a === 'string') base.push(trocar(a, mapa));
@@ -649,7 +698,7 @@ export async function preparar(
   };
 
   const args = [
-    ...argumentosJvm(plano.vjson, mapa, o.memoriaMb),
+    ...argumentosJvm(plano.vjson, mapa, o.memoriaMb, o.argsJvm),
     plano.vjson.mainClass,
     ...argumentosDoJogo(plano.vjson, mapa)
   ];
@@ -669,12 +718,53 @@ export async function preparar(
   return { plano, args };
 }
 
+/* ------------------------------------------------------------
+   Confere os argumentos extras com a propria JVM, antes de abrir.
+
+   Opcao -XX: desconhecida nao e ignorada: a JVM recusa e sai na
+   hora. Sem esta checagem o sintoma seria o pior possivel — clicar
+   em TOCAR, a barra completar, e o jogo nao abrir, sem nada na
+   tela. Um `java -version` custa uns 200ms e devolve a queixa
+   exata, com o nome da flag errada.
+   ------------------------------------------------------------ */
+function conferirArgsJvm(javaPath: string, extras: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    const p = spawn(javaPath, [...extras, '-version'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let saida = '';
+    p.stderr?.on('data', (b) => { saida += String(b); });
+
+    /* JVM travada ou java que nao responde: segue o jogo em vez de
+       prender a pessoa numa checagem que era so preventiva */
+    const relogio = setTimeout(() => { try { p.kill(); } catch { /* ja morreu */ } resolve(null); }, 8000);
+
+    p.on('error', () => { clearTimeout(relogio); resolve(null); });
+    p.on('close', (codigo) => {
+      clearTimeout(relogio);
+      if (codigo === 0) return resolve(null);
+      /* a primeira linha e a queixa; o resto e ruido do uso */
+      const linha = saida.split(String.fromCharCode(10))
+        .map((l) => l.trim())
+        .find((l) => l) || '';
+      resolve(linha.trim() || 'a JVM recusou os argumentos personalizados.');
+    });
+  });
+}
+
 export async function lancar(
   o: OpcoesLancar,
   aoProgredir: (p: Progresso) => void,
   aoLog: (linha: string) => void,
   aoSair: (codigo: number | null) => void
 ): Promise<void> {
+  const extras = separarArgs(o.argsJvm || '').filter((a) => a !== '-cp' && a !== '-classpath');
+  if (extras.length) {
+    const queixa = await conferirArgsJvm(o.javaPath, extras);
+    if (queixa) {
+      throw new Error('os argumentos da JVM não passaram: ' + queixa
+        + '  —  corrija em Ajustes > Jogo > ARGUMENTOS DA JVM, ou clique em LIMPAR.');
+    }
+  }
+
   const { args } = await preparar(o, aoProgredir);
 
   aoProgredir({ fase: 'ABRINDO O MINECRAFT', arquivosProntos: 1, arquivosTotal: 1, bytesProntos: 1, bytesTotal: 1 });

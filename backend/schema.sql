@@ -107,3 +107,108 @@ create table if not exists pendentes (
 
 alter table pendentes enable row level security;
 -- sem politicas: so a service_role (Edge Functions) enxerga
+
+-- ============================================================
+-- avisos  (adicionado depois; rode este bloco no SQL Editor)
+--
+-- Recado que aparece pra todo mundo ao abrir o launcher. Guarda
+-- historico em vez de sobrescrever: da pra saber o que foi dito
+-- e quando, e o launcher usa o id pra saber se ja mostrou.
+-- ============================================================
+create table if not exists avisos (
+  id         bigserial primary key,
+  titulo     text not null,
+  texto      text not null default '',
+  por_uuid   text not null,
+  criado_em  timestamptz not null default now()
+);
+
+alter table avisos enable row level security;
+-- sem politicas: so a service_role (Edge Functions) enxerga
+
+-- ------------------------------------------------------------
+-- avisos.alvo  (adicionado depois; rode este bloco tambem)
+--
+-- O aviso passou a ser endereçado: vai pro nick que o dev escolheu,
+-- nao pra todo mundo. Guardado em minusculo, igual `pendentes`.
+-- ------------------------------------------------------------
+alter table avisos add column if not exists alvo text;
+create index if not exists avisos_alvo_idx on avisos (alvo, id desc);
+
+-- ------------------------------------------------------------
+-- Aviso em tempo real  (rode este bloco tambem)
+--
+-- `mudou_em` e uma campainha: /gift e /title carimbam a hora aqui,
+-- o launcher da pessoa escuta a linha DELA pelo Realtime e refaz a
+-- consulta normal. O evento nao carrega conteudo nenhum.
+--
+-- Por que assim e nao escutando `avisos` direto: o Realtime respeita
+-- RLS, entao escutar `avisos` exigiria deixar a tabela publica — e
+-- qualquer um com a chave anon leria todo recado privado ja enviado.
+-- `jogadores` ja e publica de proposito (nick, cargos, capas).
+-- ------------------------------------------------------------
+alter table jogadores add column if not exists mudou_em timestamptz not null default now();
+
+-- Envolvido em DO porque `add table` nao aceita IF NOT EXISTS: rodar
+-- duas vezes dava erro 42710, e como o SQL Editor roda tudo numa
+-- transacao so, o erro desfazia os comandos de cima junto.
+do $$
+begin
+  alter publication supabase_realtime add table jogadores;
+exception when duplicate_object then null;
+end $$;
+
+-- ============================================================
+-- postagens  (rode este bloco no SQL Editor)
+--
+-- O "Lado B". So dev escreve; todo mundo le. Diferente de `avisos`,
+-- aqui a leitura publica e o ponto: e conteudo feito pra ser visto,
+-- e e o que permite escutar a tabela pelo Realtime sem expor nada.
+--
+-- `id` e bigserial, nao Date.now() do cliente: dois devs postando no
+-- mesmo milissegundo em maquinas diferentes colidiriam.
+-- ============================================================
+create table if not exists postagens (
+  id          bigserial primary key,
+  titulo      text not null,
+  corpo       text not null default '',
+  tag         text not null default 'ATUALIZAÇÃO',
+  fixado      boolean not null default false,
+  destaque    boolean not null default false,   -- "mostrar no inicio"
+  autor_uuid  text not null,
+  autor_nick  text not null,                    -- congelado: quem trocar de nick
+                                                -- nao reescreve a autoria do passado
+  criado_em   timestamptz not null default now(),
+  editado_em  timestamptz,
+  constraint tag_valida check (tag in ('ATUALIZAÇÃO', 'COMUNIDADE', 'EVENTO', 'CORREÇÃO'))
+);
+
+create index if not exists postagens_ordem_idx on postagens (fixado desc, id desc);
+
+alter table postagens enable row level security;
+
+-- leitura liberada: e mural publico
+drop policy if exists postagens_leitura on postagens;
+create policy postagens_leitura on postagens
+  for select using (true);
+
+-- sem politica de escrita: a chave anon nao escreve. Toda escrita
+-- passa pela Edge Function `posts`, que exige grupo dev.
+
+-- Realtime: qualquer INSERT/UPDATE/DELETE chega em quem esta com o
+-- launcher aberto, sem precisar fechar e abrir.
+do $$
+begin
+  alter publication supabase_realtime add table postagens;
+exception when duplicate_object then null;
+end $$;
+
+-- ------------------------------------------------------------
+-- postagens.imagem  (rode este bloco tambem)
+--
+-- URL da imagem que aparece no card da home e dentro da postagem.
+-- Guardamos a URL, nao os bytes: o arquivo vive no Storage, e uma
+-- linha de banco com megabyte dentro deixa toda leitura do mural
+-- lenta pra mostrar algo que a tela nem sempre usa.
+-- ------------------------------------------------------------
+alter table postagens add column if not exists imagem text;

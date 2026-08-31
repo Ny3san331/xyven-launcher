@@ -109,7 +109,7 @@
             <button class="btn" id="newServerCancel">CANCELAR</button>
           </div>
           <span class="skin__hint" id="serversHint">clique pra entrar · botão direito copia o IP</span>
-          <div class="servers" id="serversGrid"></div>
+          <div class="srvgrid" id="serversGrid"></div>
         </section>
 
         <!-- NOVIDADES -->
@@ -130,7 +130,7 @@
         <div class="profile">
           <div class="skin">
             <div class="skin__stage" id="skinStage">
-              <div class="skin__body" id="skinBody"></div>
+              <canvas class="skin__body" id="skinBody"></canvas>
             </div>
             <div class="skin__foot">
               <span>SKIN</span>
@@ -166,7 +166,7 @@
       <div class="wrap" id="screen-news" hidden>
         <div class="section__head">
           <h2>Novidades</h2>
-          <button class="btn btn--teal" id="newPostBtn">+ NOVA POSTAGEM</button>
+          <button class="btn btn--teal dev-only" id="newPostBtn">+ NOVA POSTAGEM</button>
         </div>
 
         <div class="filters" id="postFilters"></div>
@@ -241,6 +241,15 @@
               <button class="btn btn--teal" style="height:48px;padding:0 20px" id="browseBtn">PROCURAR</button>
             </div>
             <span class="field__hint">versões, bibliotecas e assets moram aqui, compartilhados com o Minecraft oficial. seus saves, mods e configurações do client ficam separados, em <b>.xyven</b> dentro desta pasta.</span>
+          </div>
+
+          <div class="field">
+            <span class="field__label">ARGUMENTOS DA JVM</span>
+            <div style="display:flex;gap:12px">
+              <input class="input" id="jvmInput" placeholder="-XX:+UseG1GC -Dsun.java2d.opengl=true" spellcheck="false">
+              <button class="btn" style="height:48px;padding:0 20px" id="jvmReset">LIMPAR</button>
+            </div>
+            <span class="field__hint" id="jvmHint">entram depois da memória, então <b>-Xmx</b> aqui vence o cursor acima. separe por espaço; use aspas pra caminho com espaço. deixe vazio se não souber o que pôr.</span>
           </div>
 
           <div class="field">
@@ -374,7 +383,7 @@
     <div class="skined">
       <div class="skined__view">
         <div class="skined__stage" id="skinEdStage">
-          <div class="skin__body" id="skinEdBody"></div>
+          <canvas class="skin__body" id="skinEdBody"></canvas>
         </div>
         <div class="skined__cur">
           <span class="skined__curname" id="skinEdName">—</span>
@@ -411,6 +420,16 @@
 </div>
 
 <!-- ============ MODAL: MENU DEV ============ -->
+<div class="overlay" id="avisoOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:520px">
+    <div class="modal__head modal__head--mustard"><h3 id="avisoTitulo">—</h3></div>
+    <div class="aviso__corpo" id="avisoTexto"></div>
+    <div class="form__foot" style="justify-content:flex-end">
+      <button class="btn btn--teal" id="avisoFechar">FECHAR</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="printsOverlay" hidden data-close data-wide="prints">
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modal__head modal__head--mustard">
@@ -477,9 +496,10 @@
         <span class="post__meta" id="readMeta">autor · data</span>
       </div>
       <p class="read__body selectable" id="readBody"></p>
+      <img class="postimg postimg--foto" id="readImg" hidden alt="">
     </div>
     <div class="form__foot" style="padding-top:16px;border-top:var(--bw) solid var(--ink)">
-      <button class="btn" id="readEdit">EDITAR</button>
+      <button class="btn dev-only" id="readEdit">EDITAR</button>
       <button class="btn btn--teal" data-close>FECHAR</button>
     </div>
   </div>
@@ -499,6 +519,15 @@
         <label class="form__check"><input type="checkbox" id="postPin"> fixar no topo</label>
       </div>
       <label>TEXTO<textarea id="postBody" placeholder="escreva em minúsculas, seco e curto. duas linhas já dizem muito."></textarea></label>
+      <label>IMAGEM
+        <div style="display:flex;gap:12px">
+          <input type="text" id="postImg" placeholder="cole um link, ou escolha um arquivo" spellcheck="false">
+          <button type="button" class="btn" style="padding:0 18px" id="postImgPick">ESCOLHER</button>
+          <button type="button" class="btn" style="padding:0 18px" id="postImgClear">TIRAR</button>
+        </div>
+      </label>
+      <div class="postimg" id="postImgPrev" hidden></div>
+      <input type="file" id="postImgFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
     </div>
     <div class="form__foot">
       <button class="btn" data-close>CANCELAR</button>

@@ -1,6 +1,6 @@
 {
   "name": "xyven-launcher",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Xyven Launcher",
   "main": ".vite/build/main.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:main": "vite build --config vite.main.config.ts",
     "build:preload": "vite build --config vite.preload.config.ts",
-    "make": "electron-builder --win nsis",
+    "make": "npm run build && electron-builder --win nsis",
     "lint": "eslint electron/*.ts src/renderer.js"
   },
   "keywords": [],
@@ -18,12 +18,16 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@types/node": "^20.10.6",
     "electron": "^28.0.0",
     "electron-builder": "^26.15.3",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.3",
-    "@types/node": "^20.10.6",
     "png-to-ico": "^2.1.0",
+    "typescript": "^5.3.3",
     "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
+    "skinview3d": "^3.4.2"
   }
 }

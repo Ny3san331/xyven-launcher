@@ -279,6 +279,20 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
    com nick, grupo e cargos nao cabe em 560px sem quebrar */
 .overlay[data-wide="term"] .modal{max-width:860px;width:min(860px,94vw)}
 
+/* ---- aviso do /title ----
+   As cores aqui sao as 16 do Minecraft, nao a paleta do tema. E
+   conteudo escrito por quem publica o recado, nao cromo da interface
+   — por isso a excecao. O fundo continua sendo o do tema. */
+.aviso__corpo{padding:20px 22px;font-size:13px;line-height:1.7;white-space:pre-wrap;
+  word-break:break-word;min-height:60px}
+#avisoTitulo{white-space:pre-wrap}
+.mc-0{color:#000000}.mc-1{color:#0000AA}.mc-2{color:#00AA00}.mc-3{color:#00AAAA}
+.mc-4{color:#AA0000}.mc-5{color:#AA00AA}.mc-6{color:#FFAA00}.mc-7{color:#AAAAAA}
+.mc-8{color:#555555}.mc-9{color:#5555FF}.mc-a{color:#55FF55}.mc-b{color:#55FFFF}
+.mc-c{color:#FF5555}.mc-d{color:#FF55FF}.mc-e{color:#FFFF55}.mc-f{color:#FFFFFF}
+.mc-l{font-weight:700}.mc-o{font-style:italic}.mc-n{text-decoration:underline}
+.mc-m{text-decoration:line-through}.mc-n.mc-m{text-decoration:underline line-through}
+
 /* ---- terminal do dev ---- */
 .term{display:flex;flex-direction:column;height:min(620px,74vh);min-height:0}
 .term__out{flex:1;overflow:auto;padding:16px 18px;background:var(--ink);color:var(--paper);
@@ -293,27 +307,27 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
   font:inherit;font-size:12px;color:var(--ink)}
 
 /* ---- servidores fixos do Início ---- */
-.servers{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
-.server{border-radius:0;padding:11px 12px;display:flex;align-items:center;gap:11px;text-align:left;
+.srvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
+.srv{border-radius:0;padding:11px 12px;display:flex;align-items:center;gap:11px;text-align:left;
   background:var(--paper);border:var(--bw) solid var(--ink);box-shadow:4px 4px 0 var(--ink);
   color:var(--ink);font:inherit;cursor:pointer;transition:background-color 120ms}
-.server:hover{background:var(--mustard)}
+.srv:hover{background:var(--mustard)}
 /* afunda o mesmo tanto que a sombra tinha de deslocamento */
-.server:active{box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
-.server__icon{width:64px;height:64px;flex:none;border:2px solid var(--ink);
+.srv:active{box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
+.srv__icon{width:64px;height:64px;flex:none;border:2px solid var(--ink);
   background:var(--sand-dark) center/cover no-repeat;image-rendering:pixelated}
-.server__info{display:flex;flex-direction:column;gap:4px;min-width:0}
-.server__name{font-size:14px;font-weight:700;letter-spacing:.04em;
+.srv__info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.srv__name{font-size:14px;font-weight:700;letter-spacing:.04em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.server__on{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
-.server__dot{width:7px;height:7px;flex:none;background:var(--teal)}
-.server__dot--off{background:var(--muted)}
+.srv__on{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.srv__dot{width:7px;height:7px;flex:none;background:var(--teal)}
+.srv__dot--off{background:var(--muted)}
 /* remover so aparece nos servidores que o proprio jogador adicionou */
-.server{position:relative}
-.server__x{position:absolute;top:-2px;right:-2px;width:20px;height:20px;display:none;
+.srv{position:relative}
+.srv__x{position:absolute;top:-2px;right:-2px;width:20px;height:20px;display:none;
   place-items:center;background:var(--red);color:var(--paper);border:2px solid var(--ink);
   font-size:11px;font-weight:700;line-height:1}
-.server:hover .server__x{display:grid}
+.srv:hover .srv__x{display:grid}
 .serveradd{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .serveradd .input{height:38px}
 .serveradd #newServerNome{width:150px;flex:none}
@@ -326,7 +340,13 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
 .section__head{display:flex;align-items:center;justify-content:space-between;border-bottom:var(--bw) solid var(--ink);padding-bottom:10px}
 .section__head h2{font-size:22px}
 .news{box-shadow:5px 5px 0 var(--ink)}
-.news__img{height:118px;border-bottom:var(--bw) solid var(--ink)}
+/* aspect-ratio no lugar de height fixo.
+   Antes a altura era 118px e a largura seguia a janela: a mesma foto
+   cortava diferente em cada tamanho de tela, e nao havia medida certa
+   pra recomendar a quem publica. 7/3 e a proporcao que o card ja tinha
+   na largura minima (1024), entao ali nada muda de aparencia; em janela
+   maior a imagem cresce em vez de cortar mais. */
+.news__img{aspect-ratio:7/3;border-bottom:var(--bw) solid var(--ink)}
 .news__body{padding:14px 16px 18px;display:flex;flex-direction:column;gap:7px}
 .news__title{font-family:var(--font-display);font-size:15px;line-height:1.25}
 .news__desc{font-size:11.5px;line-height:1.6;color:var(--muted)}
@@ -549,19 +569,21 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
    ============================================================ */
 .profile{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start}
 .skin{border:var(--bw) solid var(--ink);background:var(--sand-dark);box-shadow:6px 6px 0 var(--ink);overflow:hidden}
-.skin__stage{height:420px;display:grid;place-items:center;overflow:hidden;cursor:grab;position:relative;touch-action:none;background:
+.skin__stage{height:420px;display:block;overflow:hidden;cursor:grab;position:relative;touch-action:none;background:
   repeating-linear-gradient(45deg,rgba(51,38,28,.05) 0 12px,transparent 12px 24px)}
 .skin__stage:active{cursor:grabbing}
-.skin__body{width:150px;transform-style:preserve-3d;transition:none;will-change:transform}
+.skin__body{display:block;width:100%;height:100%}
+/* o palco precisa de altura definida: o canvas mede o pai, e pai
+   sem altura resolvida devolvia 0 e o visor nascia invisivel */
+.skin__stage>.skin__body,.skined__stage>.skin__body{position:absolute;inset:0}
 .skin__row{display:flex;justify-content:center;gap:0}
-.skin__part{background-repeat:no-repeat;image-rendering:pixelated;background-size:auto;backface-visibility:hidden}
 .skin__foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-top:var(--bw) solid var(--ink);background:var(--paper);font-size:10px;font-weight:700;letter-spacing:.12em}
 .skin__hint{color:var(--muted);font-weight:400;letter-spacing:.04em;font-size:10.5px}
 
 /* ---- editor de skin: prévia + capas + skins salvas ---- */
 .skined{display:grid;grid-template-columns:270px 1fr;height:min(520px,62vh);min-height:0}
 .skined__view{border-right:var(--bw) solid var(--ink);background:var(--sand-dark);display:flex;flex-direction:column;min-height:0}
-.skined__stage{flex:1;min-height:180px;display:grid;place-items:center;overflow:hidden;cursor:grab;touch-action:none;background:repeating-linear-gradient(45deg,rgba(51,38,28,.05) 0 12px,transparent 12px 24px)}
+.skined__stage{flex:1;min-height:180px;display:block;position:relative;overflow:hidden;cursor:grab;touch-action:none;background:repeating-linear-gradient(45deg,rgba(51,38,28,.05) 0 12px,transparent 12px 24px)}
 .skined__stage:active{cursor:grabbing}
 .skined__cur{padding:12px 14px;border-top:var(--bw) solid var(--ink);background:var(--paper);display:flex;flex-direction:column;gap:3px}
 .skined__curname{font-family:var(--font-display);font-size:15px}
@@ -623,6 +645,23 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
 .server__hrs{text-align:right;font-family:var(--font-display);font-size:15px}
 
 /* menu dev — só aparece pra quem está no grupo */
+/* imagem de uma postagem: moldura de 2px, como as outras molduras
+   internas de imagem do tema */
+/* mesma proporcao do card da home, de proposito: a previa aqui tem
+   que mostrar exatamente o que vai aparecer la */
+.postimg{border:2px solid var(--ink);background:var(--sand-dark) center/cover no-repeat;
+  aspect-ratio:7/3;image-rendering:auto}
+/* Dentro da postagem a foto aparece INTEIRA, na proporcao dela.
+   O 7:3 existe pro card da home, que tem caixa fixa e recorta; aqui
+   nao ha caixa a respeitar, e cortar a imagem que a pessoa escolheu
+   e o oposto do que ela quis ao colocar. */
+.postimg--foto{width:100%;height:auto;aspect-ratio:auto;background:none;display:block}
+/* sem foto: mesma linguagem de vazio do resto (tracejado, texto
+   apagado), com a medida que faz o card da home nao cortar nada */
+.postimg--vazio{display:grid;place-items:center;gap:4px;text-align:center;
+  background:none;border-style:dashed;color:var(--muted);
+  font-size:11px;letter-spacing:.06em;padding:0 16px}
+.postimg--vazio b{font-size:13px;letter-spacing:.12em;color:var(--ink)}
 .dev-only{display:none}
 body[data-group="dev"] .dev-only{display:flex}
 .rail__btn--dev{background:var(--teal);color:#f4e7ca}
@@ -669,7 +708,10 @@ body[data-group="dev"] .dev-only{display:flex}
 .post__body--clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .post__title{cursor:pointer}
 .post__title:hover{color:var(--salmon)}
-.read{padding:24px;display:flex;flex-direction:column;gap:14px;max-height:60vh;overflow-y:auto}
+/* mesmo teto do .form. Com 60vh a foto da postagem nascia fora da
+   vista: rolava, mas dava a impressao de imagem cortada. */
+.read{padding:24px;display:flex;flex-direction:column;gap:14px;
+  max-height:calc(100vh - 200px);overflow-y:auto}
 .read__meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .read__body{margin:0;font-size:13px;line-height:1.85;color:var(--ink);text-wrap:pretty;white-space:pre-wrap}
 .post__actions{display:flex;gap:16px;margin-top:2px}
@@ -677,7 +719,12 @@ body[data-group="dev"] .dev-only{display:flex}
 .link-btn:hover{color:var(--ink)}
 .link-btn--danger:hover{color:var(--red)}
 .empty{padding:40px;text-align:center;font-size:12px;color:var(--muted);border:var(--bw) dashed var(--ink)}
-.form{padding:20px;display:flex;flex-direction:column;gap:16px}
+/* max-height + overflow: o modal tem max-height:100%, mas sem isto
+   o conteudo passava do fim e ficava cortado, sem barra pra descer.
+   Apareceu quando o editor de postagem ganhou o campo de imagem.
+   O desconto de 200px cobre o cabecalho e o rodape do modal. */
+.form{padding:20px;display:flex;flex-direction:column;gap:16px;
+  max-height:calc(100vh - 200px);overflow-y:auto}
 .form label{display:flex;flex-direction:column;gap:7px;font-size:10px;font-weight:700;letter-spacing:.16em}
 .form input[type="text"],.form select,.form textarea{border:var(--bw) solid var(--ink);background:var(--paper);color:var(--ink);font-family:var(--font-ui);font-size:12px;padding:10px 12px;outline:none;font-weight:400;letter-spacing:0}
 .form textarea{min-height:150px;resize:vertical;line-height:1.7}

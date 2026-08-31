@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.consultar]
 verify_jwt = false
+
+[functions.title]
+verify_jwt = false
+
+[functions.posts]
+verify_jwt = false

@@ -9,6 +9,7 @@ import * as auth from './auth';
 import * as servidores from './servidores';
 import * as prints from './prints';
 import * as xyvenapi from './xyvenapi';
+import * as realtime from './realtime';
 import * as discord from './discord';
 
 /* ============================================================
@@ -329,6 +330,29 @@ function createWindow() {
     xyvenapi.consultar(String(nick), !!registrar));
   ipcMain.handle('xyven:gift', (_e, token: string, alvo: string, item: string, acao: string) =>
     xyvenapi.gift(String(token), String(alvo), String(item), acao === 'tirar' ? 'tirar' : 'dar'));
+  ipcMain.handle('xyven:title', (_e, token: string, alvo: string, titulo: string, texto: string) =>
+    xyvenapi.title(String(token), String(alvo), String(titulo), String(texto)));
+
+  /* ---- campainha em tempo real ----
+
+     O renderer diz qual conta esta ativa; quando a linha dela muda
+     no banco, devolvemos um 'xyven:mudou' e ele refaz a consulta.
+     O evento nao traz conteudo — so o aviso de que ha o que buscar. */
+  ipcMain.handle('xyven:listarPosts', () => xyvenapi.listarPosts());
+  ipcMain.handle('xyven:post', (_e, token: string, corpo: Record<string, unknown>) =>
+    xyvenapi.post(String(token), corpo || {}));
+
+  ipcMain.handle('xyven:seguir', (e, nick: string) => {
+    const wc = e.sender;
+    realtime.seguir(String(nick), () => {
+      if (!wc.isDestroyed()) wc.send('xyven:mudou');
+    });
+    /* mural: canal proprio, ligado uma vez e independente de conta */
+    realtime.seguirPosts(() => {
+      if (!wc.isDestroyed()) wc.send('xyven:posts-mudou');
+    });
+    return realtime.ligado();
+  });
   ipcMain.handle('xyven:grupo', (_e, token: string, alvo: string, grupo: string) =>
     xyvenapi.grupo(String(token), String(alvo), String(grupo)));
 

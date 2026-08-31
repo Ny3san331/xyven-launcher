@@ -12,7 +12,7 @@
    de formato — sem isso um script encheria a tabela. */
 import {
   acharJogador, admin, chaveNick, erro, json,
-  lerPendente, nickValido, registrarPirata
+  lerPendente, nickValido, registrarPirata, ultimoAviso
 } from '../_shared/comum.ts';
 
 Deno.serve(async (req) => {
@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
     grupo: 'player',
     cargos,
     capas,
-    pendente: !!pendente
+    pendente: !!pendente,
+    aviso: await ultimoAviso(sb, nick)
   });
 });

@@ -47,7 +47,18 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('xyven:consultar', nick, registrar),
     gift: (token: string, alvo: string, item: string, acao?: string) =>
       ipcRenderer.invoke('xyven:gift', token, alvo, item, acao || 'dar'),
+    title: (token: string, alvo: string, titulo: string, texto: string) =>
+      ipcRenderer.invoke('xyven:title', token, alvo, titulo, texto),
     grupo: (token: string, alvo: string, grupo: string) => ipcRenderer.invoke('xyven:grupo', token, alvo, grupo),
+    /* passa a escutar mudancas desta conta */
+    listarPosts: () => ipcRenderer.invoke('xyven:listarPosts'),
+    post: (token: string, corpo: Record<string, unknown>) =>
+      ipcRenderer.invoke('xyven:post', token, corpo),
+    seguir: (nick: string) => ipcRenderer.invoke('xyven:seguir', nick),
+    /* chamado quando algo mudou no servidor; o renderer resincroniza */
+    aoMudar: (fn: () => void) => ipcRenderer.on('xyven:mudou', () => fn()),
+    /* alguem escreveu, fixou ou apagou postagem */
+    aoMudarPosts: (fn: () => void) => ipcRenderer.on('xyven:posts-mudou', () => fn()),
   },
   prints: {
     listar: (gameDir: string) => ipcRenderer.invoke('prints:listar', gameDir),

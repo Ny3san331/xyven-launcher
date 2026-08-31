@@ -50,3 +50,6 @@ PROMPT-BACKEND-SUPABASE.md
 # artefatos locais do CLI do Supabase e do Deno
 backend/supabase/.temp/
 deno.lock
+
+# pasta criada por engano quando um caminho perdeu as barras
+UsersUsuarioAppDataRoaming.minecraft/

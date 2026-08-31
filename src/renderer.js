@@ -1,3 +1,4 @@
+import { criarVisor, vestir } from './skin3d.js';
 
 /* ============================================================
    7.z MIGRAÇÃO owl.* -> xyven.* (marca antiga)
@@ -88,7 +89,7 @@ document.getElementById('btnClose').onclick = () => window.api?.window?.close?.(
    ============================================================ */
 /* Modelo REAL da textura da conta, informado pela Mojang. Nulo enquanto nao
    se sabe — e ai a textura e tratada como se casasse com a geometria.
-   Declarado AQUI, e nao junto de skinParts la embaixo: buildSkinInto roda no
+   Declarado AQUI, e nao la embaixo junto do resto da skin: buildSkinInto roda no
    boot, antes daquele ponto, e um 'let' depois do uso da TDZ. Ja derrubou
    este arquivo tres vezes. */
 let texturaSlim = null;
@@ -166,6 +167,10 @@ function paintSkins(scope) {
 new MutationObserver(() => paintSkins()).observe(document.body, { childList: true, subtree: true });
 
 /* cards da home vêm das postagens do fórum marcadas com "mostrar no início" */
+/* A imagem da postagem vence a do tema. As do tema eram placeholder
+   de mock: servem so enquanto ninguem pos foto na postagem. */
+const imgDoCard = (p, doTema) => (p && p.img) ? p.img : (doTema || '');
+
 function renderNews() {
   const newsImages = [
     getComputedStyle(document.documentElement).getPropertyValue('--img-news-1').trim(),
@@ -179,7 +184,7 @@ function renderNews() {
   }
   $('#newsGrid').innerHTML = destaques.map((p, i) => `
     <div class="card news" data-open-post="${p.id}" style="cursor:pointer">
-      <div class="news__img" style="${newsImages[i] ? `background-image:url('${newsImages[i]}');background-size:cover;background-position:center` : ''}">${newsImages[i] ? '' : 'IMAGEM'}</div>
+      <div class="news__img" style="${imgDoCard(p, newsImages[i]) ? `background-image:url('${imgDoCard(p, newsImages[i])}');background-size:cover;background-position:center` : ''}">${imgDoCard(p, newsImages[i]) ? '' : 'IMAGEM'}</div>
       <div class="news__body">
         <span class="tag" style="align-self:flex-start;background:${TAG_BG[p.tag] || 'var(--sand)'}">${esc(p.tag)}</span>
         <span class="news__title">${esc(p.title)}</span>
@@ -432,7 +437,14 @@ const close = (el) => { el.hidden = true; };
 /* menu de conta */
 const chip = document.getElementById('accountChip');
 const accMenu = document.getElementById('accountMenu');
-chip.addEventListener('click', (e) => { e.stopPropagation(); accMenu.hidden = !accMenu.hidden; });
+chip.addEventListener('click', (e) => {
+  e.stopPropagation();
+  accMenu.hidden = !accMenu.hidden;
+  /* Os dois abrem no mesmo canto e se sobrepoem. O sino ja fechava
+     este menu; faltava o contrario, entao abrir na ordem sino ->
+     conta deixava os dois na tela, um por cima do outro. */
+  if (!accMenu.hidden) $('#notifPanel').hidden = true;
+});
 document.addEventListener('click', (e) => {
   if (!accMenu.contains(e.target) && !chip.contains(e.target)) accMenu.hidden = true;
 });
@@ -1085,6 +1097,7 @@ async function tocar(servidor) {
     memoriaMb: state.mem,
     javaPath: java.path,
     gameDir: state.dir || $('#dirInput').value,
+    argsJvm: jvmArgs,
     nick: sessao ? sessao.nick : state.account,
     uuid: sessao ? sessao.uuid : undefined,
     accessToken: sessao ? sessao.accessToken : undefined,
@@ -1182,6 +1195,31 @@ async function definirPastaJogo() {
 }
 
 const salvarPasta = () => { try { localStorage.setItem('xyven.dir', state.dir || ''); } catch (e) { /* sem storage */ } };
+
+/* ------------------------------------------------------------
+   ARGUMENTOS DA JVM
+
+   Texto cru, do jeito que a pessoa digitou. Quem separa em tokens e
+   o processo principal, que e quem monta a linha de comando — fazer
+   isso aqui so daria duas implementacoes pra divergir.
+   ------------------------------------------------------------ */
+let jvmArgs = '';
+try { jvmArgs = localStorage.getItem('xyven.jvm') || ''; } catch (e) { jvmArgs = ''; }
+
+const salvarJvm = () => {
+  try { localStorage.setItem('xyven.jvm', jvmArgs); } catch (e) { /* sem storage */ }
+};
+
+function ligarCampoJvm() {
+  const campo = $('#jvmInput'); if (!campo) return;
+  campo.value = jvmArgs;
+  /* 'input' e nao 'change': fechar o modal sem tirar o foco perdia o
+     que a pessoa tinha acabado de escrever */
+  campo.addEventListener('input', () => { jvmArgs = campo.value; salvarJvm(); });
+  const limpar = $('#jvmReset');
+  if (limpar) limpar.onclick = () => { jvmArgs = ''; campo.value = ''; salvarJvm(); };
+}
+ligarCampoJvm();
 
 async function carregarVersoes() {
   if (!temApi() || !window.api.mc.instaladas) return;
@@ -1522,25 +1560,80 @@ initEditor();
 const POST_TAGS = ['ATUALIZAÇÃO', 'COMUNIDADE', 'EVENTO', 'CORREÇÃO'];
 const TAG_BG = { 'ATUALIZAÇÃO': 'var(--mustard)', 'COMUNIDADE': 'var(--salmon)', 'EVENTO': 'var(--teal)', 'CORREÇÃO': 'var(--sand-dark)' };
 
-const SEED_POSTS = [
-  { id: 1, tag: 'ATUALIZAÇÃO', pinned: true, featured: true, author: 'XyvenDev', date: '27/08/2026',
-    title: 'Motor de FPS novo já está no ar',
-    body: 'o renderer foi reescrito do zero. em 1.8.9 a média subiu 22% nas máquinas que testamos, sem mexer em nenhuma configuração.\n\nse você usava mod de otimização, pode tirar. o ganho já vem de casa.' },
-  { id: 2, tag: 'EVENTO', pinned: false, featured: true, author: 'Ny3san', date: '25/08/2026',
-    title: 'Xyven Cup de agosto — inscrições abertas',
-    body: 'torneio 3v3 de bedwars, chaves definidas no domingo à noite. premiação em cosméticos e um mês de PRO pra equipe vencedora.' },
-  { id: 3, tag: 'CORREÇÃO', pinned: false, featured: true, author: 'XyvenDev', date: '21/08/2026',
-    title: 'Crash ao trocar de fita durante o download',
-    body: 'corrigido. quem trocava de versão com o download em andamento fechava o launcher sem aviso.' }
-];
+/* ------------------------------------------------------------
+   As postagens moram no servidor, nao mais aqui.
 
+   Antes eram localStorage: cada pessoa via o proprio mural, e o que
+   um dev escrevia nao chegava em ninguem. O cache local continua,
+   mas so como plano B — sem rede, mostra o que ja tinha visto em vez
+   de uma tela vazia, que pareceria mural apagado.
+   ------------------------------------------------------------ */
 let posts = [];
-try { posts = JSON.parse(localStorage.getItem('xyven.posts') || 'null') || SEED_POSTS.slice(); }
-catch (e) { posts = SEED_POSTS.slice(); }
+try { posts = JSON.parse(localStorage.getItem('xyven.posts') || 'null') || []; }
+catch (e) { posts = []; }
 let postFilter = 'TODAS';
 let editingId = null;
 
+/* cache de leitura, nao fonte da verdade */
 const savePosts = () => { try { localStorage.setItem('xyven.posts', JSON.stringify(posts)); } catch (e) { /* sem storage */ } };
+
+/* Converte a linha do banco no formato que a tela ja usava. Traduzir
+   num lugar so evitou reescrever renderFeed, renderNews e a leitura. */
+function daLinha(r) {
+  const d = new Date(r.criado_em);
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    id: Number(r.id),
+    tag: r.tag,
+    pinned: !!r.fixado,
+    featured: !!r.destaque,
+    author: r.autor_nick,
+    date: pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear(),
+    title: r.titulo,
+    body: r.corpo || '',
+    img: r.imagem || ''
+  };
+}
+
+let buscandoPosts = false;
+async function carregarPosts() {
+  if (buscandoPosts) return;
+  if (!temApi() || !window.api.xyven || !window.api.xyven.listarPosts) return;
+  buscandoPosts = true;
+  try {
+    const r = await window.api.xyven.listarPosts();
+    if (r && r.ok) {
+      posts = (r.dados.posts || []).map(daLinha);
+      savePosts();
+      renderFeed(); renderNews();
+    } else {
+      /* fica com o cache: sem rede o mural nao deve parecer apagado */
+      console.log('[xyven] mural: ' + ((r && r.erro) || 'sem resposta'));
+    }
+  } catch (e) {
+    console.log('[xyven] mural falhou: ' + (e && e.message));
+  } finally {
+    buscandoPosts = false;
+  }
+}
+
+/* Manda uma acao de escrita e recarrega. Recarregar em vez de mexer
+   na lista local: o servidor e quem decide, e assim uma recusa nunca
+   deixa a tela mostrando algo que nao aconteceu. */
+async function acaoPost(corpo) {
+  const token = await tokenAtual();
+  if (!token || !window.api.xyven || !window.api.xyven.post) {
+    alert('precisa de conta original logada — o mural fica no servidor.');
+    return false;
+  }
+  const r = await window.api.xyven.post(token, corpo).catch(() => null);
+  if (!r || !r.ok) {
+    alert((r && r.erro) || 'nao consegui falar com a API.');
+    return false;
+  }
+  await carregarPosts();
+  return true;
+}
 /* declaracao de funcao (nao const): e usada bem antes deste ponto,
    no boot, e function e hoisted */
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -1576,10 +1669,10 @@ function renderFeed() {
         <p class="post__body post__body--clamp selectable">${esc(p.body).replace(/\n/g, '<br>')}</p>
         <div class="post__actions">
           <button class="link-btn" data-open-post="${p.id}">ler tudo</button>
-          <button class="link-btn" data-edit="${p.id}">editar</button>
-          <button class="link-btn" data-pin="${p.id}">${p.pinned ? 'desafixar' : 'fixar'}</button>
-          <button class="link-btn" data-home="${p.id}">${p.featured ? 'tirar do início' : 'mostrar no início'}</button>
-          <button class="link-btn link-btn--danger" data-del="${p.id}">apagar</button>
+          <button class="link-btn dev-only" data-edit="${p.id}">editar</button>
+          <button class="link-btn dev-only" data-pin="${p.id}">${p.pinned ? 'desafixar' : 'fixar'}</button>
+          <button class="link-btn dev-only" data-home="${p.id}">${p.featured ? 'tirar do início' : 'mostrar no início'}</button>
+          <button class="link-btn link-btn--danger dev-only" data-del="${p.id}">apagar</button>
         </div>
       </div>
     </article>`).join('');
@@ -1597,15 +1690,19 @@ $('#feed').addEventListener('click', (e) => {
   if (ed) return openPostEditor(Number(ed.dataset.edit));
   if (pin) {
     const p = posts.find(x => x.id === Number(pin.dataset.pin));
-    p.pinned = !p.pinned; savePosts(); renderFeed(); renderNews();
+    if (p) acaoPost({ acao: 'fixar', id: p.id, fixado: !p.pinned });
   }
   if (home) {
     const p = posts.find(x => x.id === Number(home.dataset.home));
-    p.featured = !p.featured; savePosts(); renderFeed(); renderNews();
+    if (p) acaoPost({ acao: 'destaque', id: p.id, destaque: !p.featured });
   }
   if (del) {
-    posts = posts.filter(x => x.id !== Number(del.dataset.del));
-    savePosts(); renderFeed(); renderNews();
+    const id = Number(del.dataset.del);
+    const p = posts.find(x => x.id === id);
+    /* apagar e o unico sem volta, e agora vale pra todo mundo */
+    if (p && confirm('apagar "' + p.title + '"? isso vale pra todo mundo.')) {
+      acaoPost({ acao: 'apagar', id });
+    }
   }
 });
 
@@ -1633,6 +1730,11 @@ function openPost(id) {
   $('#readPin').hidden = !p.pinned;
   $('#readMeta').textContent = p.author + ' · ' + p.date;
   setAvatar($('#readAvatar'), p.author);
+  const ri = $('#readImg');
+  ri.hidden = !p.img;
+  /* limpa o src quando nao ha foto: sem isto o <img> guarda a da
+     postagem anterior e pisca com ela ao abrir a proxima */
+  ri.src = p.img || '';
   $('#readTitle').textContent = p.title;
   $('#readBody').textContent = p.body;
   open($('#readOverlay'));
@@ -1648,34 +1750,120 @@ function openPostEditor(id) {
   $('#postBody').value = p ? p.body : '';
   $('#postTag').innerHTML = POST_TAGS.map(t => `<option ${p && p.tag === t ? 'selected' : ''}>${t}</option>`).join('');
   $('#postPin').checked = p ? !!p.pinned : false;
+  $('#postImg').value = p ? (p.img || '') : '';
+  previewImg();
   open($('#postOverlay'));
   setTimeout(() => $('#postTitle').focus(), 30);
 }
 
+/* ------------------------------------------------------------
+   IMAGEM DA POSTAGEM
+
+   Aceita link colado ou arquivo. O arquivo sobe pro Storage do
+   Supabase e vira link: guardar os bytes na linha do banco deixaria
+   toda leitura do mural lenta pra carregar algo que a lista nem usa.
+   ------------------------------------------------------------ */
+/* 1400x600 = 7:3, a proporcao da moldura do card e desta previa.
+   Fora dessa proporcao o `cover` corta as bordas — nao importa se a
+   foto e maior ou menor, so a proporcao conta. */
+const MEDIDA_IMG = '1400 x 600';
+
+function previewImg() {
+  const url = $('#postImg').value.trim();
+  const prev = $('#postImgPrev');
+  /* a caixa nao some mais: sem foto ela vira o aviso da medida, que e
+     onde a pessoa vai olhar antes de escolher o arquivo */
+  prev.hidden = false;
+  prev.classList.toggle('postimg--vazio', !url);
+  prev.style.backgroundImage = url ? "url('" + url + "')" : '';
+  prev.innerHTML = url ? '' :
+    '<b>' + MEDIDA_IMG + '</b><span>ou qualquer foto em 7:3 &mdash; fora dessa proporcao as bordas somem</span>' +
+    '<span>png, jpg, gif ou webp &middot; ate 2 MB</span>';
+}
+
+$('#postImg').addEventListener('input', previewImg);
+$('#postImgClear').onclick = () => { $('#postImg').value = ''; previewImg(); };
+$('#postImgPick').onclick = () => $('#postImgFile').click();
+
+$('#postImgFile').addEventListener('change', async (e) => {
+  const arq = e.target.files && e.target.files[0];
+  /* zera o input: escolher o MESMO arquivo de novo nao dispara
+     'change' se o valor continuar o mesmo */
+  e.target.value = '';
+  if (!arq) return;
+
+  const botao = $('#postImgPick');
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'ENVIANDO...';
+
+  try {
+    const b64 = await new Promise((ok, falhou) => {
+      const fr = new FileReader();
+      /* o resultado vem como data:...;base64,XXXX — o servidor quer so o XXXX */
+      fr.onload = () => ok(String(fr.result).split(',')[1] || '');
+      fr.onerror = () => falhou(new Error('não consegui ler o arquivo.'));
+      fr.readAsDataURL(arq);
+    });
+
+    const token = await tokenAtual();
+    if (!token || !window.api.xyven || !window.api.xyven.post) {
+      alert('precisa de conta original logada pra enviar imagem.');
+      return;
+    }
+    const r = await window.api.xyven.post(token, { acao: 'imagem', nome: arq.name, dados: b64 })
+      .catch(() => null);
+    if (!r || !r.ok) {
+      alert((r && r.erro) || 'não consegui enviar a imagem.');
+      return;
+    }
+    $('#postImg').value = r.dados.url;
+    previewImg();
+  } catch (err) {
+    alert((err && err.message) || 'não consegui enviar a imagem.');
+  } finally {
+    botao.disabled = false; botao.textContent = rotulo;
+  }
+});
+
 $('#newPostBtn').onclick = () => openPostEditor(null);
 
-$('#postSave').onclick = () => {
+$('#postSave').onclick = async () => {
   const title = $('#postTitle').value.trim();
   const body = $('#postBody').value.trim();
   if (!title) { $('#postTitle').focus(); return; }
-  if (editingId) {
-    const p = posts.find(x => x.id === editingId);
-    Object.assign(p, { title, body, tag: $('#postTag').value, pinned: $('#postPin').checked });
-  } else {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    posts.unshift({
-      id: Date.now(), tag: $('#postTag').value, pinned: $('#postPin').checked, featured: false,
-      author: state.account, date: `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`,
-      title, body
-    });
-  }
-  savePosts(); renderFeed(); renderNews(); close($('#postOverlay'));
+
+  const botao = $('#postSave');
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'ENVIANDO...';
+
+  const ok = await acaoPost({
+    acao: editingId ? 'editar' : 'criar',
+    id: editingId || undefined,
+    titulo: title,
+    corpo: body,
+    tag: $('#postTag').value,
+    fixado: $('#postPin').checked,
+    imagem: $('#postImg').value.trim()
+  });
+
+  botao.disabled = false; botao.textContent = rotulo;
+  /* fecha so quando deu certo: recusar com o modal fechado faria o
+     texto escrito sumir junto */
+  if (ok) close($('#postOverlay'));
 };
 
-/* boot do fórum */
+/* boot do forum */
 paintSkins();
 renderFilters(); renderFeed(); renderNews();
+carregarPosts();
+
+/* Alguem escreveu, fixou ou apagou: chega na hora, sem reabrir. */
+if (temApi() && window.api.xyven && window.api.xyven.aoMudarPosts) {
+  window.api.xyven.aoMudarPosts(() => {
+    console.log('[xyven] o mural mudou; recarregando');
+    carregarPosts();
+  });
+}
 
 /* ============================================================
    10.c TELA DE PERFIL — skin 3D, horas e servidores
@@ -1779,91 +1967,6 @@ function renderProfile() {
 /* ---- skin 3D: caixas de CSS com a textura do skin recortada por face ---- */
 const SKIN_TEX = (nick) => 'https://mc-heads.net/skin/' + encodeURIComponent(nick);
 
-/* [largura, altura, profundidade] em px de textura, e o topo-esquerda de cada face */
-/* x/y em pixels de textura, medidos a partir do centro do corpo.
-   O 0.02 separa faces que ficariam no mesmo plano (braço/torso, perna/perna):
-   sem essa folga o 3D do navegador pisca listras, principalmente nas costas. */
-function skinParts(slim, texSlim) {
-  const aw = slim ? 3 : 4;                     /* largura da caixa (geometria) */
-  const tw = (texSlim === undefined ? slim : texSlim) ? 3 : 4;   /* largura na textura */
-  const base = [
-    { name: 'head', w: 8,  h: 8,  d: 8, u: 0,  v: 0,  x: -4,               y: 0,  o: { u: 32, v: 0 } },
-    { name: 'body', w: 8,  h: 12, d: 4, u: 16, v: 16, x: -4,               y: 8,  o: { u: 16, v: 32 } },
-    { name: 'armR', w: aw, tw: tw, h: 12, d: 4, u: 40, v: 16, x: -(4 + aw) + 0.02, y: slim ? 8.5 : 8, o: { u: 40, v: 32 } },
-    { name: 'armL', w: aw, tw: tw, h: 12, d: 4, u: 32, v: 48, x: 4 - 0.02,         y: slim ? 8.5 : 8, o: { u: 48, v: 48 } },
-    { name: 'legR', w: 4,  h: 12, d: 4, u: 0,  v: 16, x: -4 + 0.02,        y: 20, o: { u: 0,  v: 32 } },
-    { name: 'legL', w: 4,  h: 12, d: 4, u: 16, v: 48, x: -0.02,            y: 20, o: { u: 0,  v: 48 } }
-  ];
-  /* braços e pernas SOBREPÕEM o torso em 0.02 em vez de deixar folga:
-     com folga aparecia fresta transparente nas costas; com sobreposição
-     a face interna fica dentro do corpo, sem fresta e sem z-fighting */
-
-  /* segunda camada (cabelo, jaqueta, manga, calça): mesma caixa 6% maior */
-  const over = base.map(p => Object.assign({}, p, { u: p.o.u, v: p.o.v, over: true }));
-  return base.concat(over);
-}
-
-function faceStyle(tex, sc, p, face, sheetH) {
-  /* Largura da peça NA TEXTURA. Costuma ser igual à da geometria, mas o braço
-     de uma skin slim ocupa 3px enquanto a caixa clássica tem 4. E não é só a
-     frente: numa textura slim o verso fica em u+11 e a lateral em u+7, contra
-     u+12 e u+8 na clássica. Lendo com os offsets errados vinham colunas vazias
-     nas costas — era o buraco que aparecia no modo PADRÃO. */
-  const tw = p.tw || p.w;
-
-  /* recorte de cada face na folha de skin: [dx, dy, largura, altura] */
-  const map = {
-    front: [p.d,          p.d,  tw,  p.h],
-    back:  [p.d * 2 + tw, p.d,  tw,  p.h],
-    right: [0,            p.d,  p.d, p.h],
-    left:  [p.d + tw,     p.d,  p.d, p.h],
-    top:   [p.d,          0,    tw,  p.d],
-    bottom:[p.d + tw,     0,    tw,  p.d]
-  }[face];
-  const [ox, oy, sw, sh] = map;
-
-  /* A face tem a largura da GEOMETRIA. Se a textura for mais estreita
-     (skin slim desenhada na caixa clássica), sobra uma coluna sem pixel:
-     ela fica PRETA, em vez de esticar o desenho ou vazar o pixel vizinho.
-     Por isso a face é uma caixa preta com a textura dentro, recortada. */
-  const larguraCaixa = (face === 'right' || face === 'left') ? p.d : p.w;
-  /* SO na camada de baixo. A de cima (chapeu, jaqueta, manga) e transparente
-     na maioria das skins: pintar o fundo dela de preto tampava a camada de
-     baixo inteira, e o braco saia todo preto em vez de uma coluna so. */
-  const falta = larguraCaixa > sw && !p.over;
-
-  const fora = 'position:absolute;left:50%;top:50%;overflow:hidden;' +
-    'width:' + (larguraCaixa * sc) + 'px;height:' + (sh * sc) + 'px;' +
-    'margin-left:' + (-larguraCaixa * sc / 2) + 'px;margin-top:' + (-sh * sc / 2) + 'px;' +
-    (falta ? 'background-color:#000;' : '');
-
-  const dentro = 'position:absolute;left:0;top:0;' +
-    'width:' + (sw * sc) + 'px;height:' + (sh * sc) + 'px;' +
-    'background-repeat:no-repeat;image-rendering:pixelated;' +
-    'background-image:url(' + tex + ');' +
-    'background-size:' + (64 * sc) + 'px ' + ((sheetH || 64) * sc) + 'px;' +
-    'background-position:' + (-(p.u + ox) * sc) + 'px ' + (-(p.v + oy) * sc) + 'px;';
-
-  return { fora: fora, dentro: dentro };
-}
-
-/* monta as seis faces de uma caixa. serve pro corpo e pra capa */
-function caixa3d(tex, sc, p, sheetH) {
-  const W = p.w * sc, H = p.h * sc, D = p.d * sc;
-  return [
-    ['front',  'translateZ(' + (D / 2) + 'px)'],
-    ['back',   'rotateY(180deg) translateZ(' + (D / 2) + 'px)'],
-    ['right',  'rotateY(-90deg) translateZ(' + (W / 2) + 'px)'],
-    ['left',   'rotateY(90deg) translateZ(' + (W / 2) + 'px)'],
-    ['top',    'rotateX(90deg) translateZ(' + (H / 2) + 'px)'],
-    ['bottom', 'rotateX(-90deg) translateZ(' + (H / 2) + 'px)']
-  ].map(([f, t]) => {
-    const e = faceStyle(tex, sc, p, f, sheetH);
-    return '<div class="skin__part" style="' + e.fora + 'transform:' + t + '">' +
-             '<div style="' + e.dentro + '"></div></div>';
-  }).join('');
-}
-
 /* ------------------------------------------------------------
    Qual é o modelo da skin: braço de 3px (slim) ou de 4px (clássico)?
 
@@ -1903,119 +2006,51 @@ try { capeApplied = localStorage.getItem('xyven.cape') || 'none'; } catch (e) { 
 
 function buildSkin() { buildSkinInto('#skinBody', profile.skin, 9, capeApplied, profile.slim); }
 
-function buildSkinInto(sel, nick, sc, capeId, slim) {
-  const stage = $(sel); if (!stage) return;
-  const tex = SKIN_TEX(nick);
-  const capeDef = capasDisponiveis().find(c => c.id === capeId);
-  const capeTex = (capeDef && capeDef.url) ? String(capeDef.url).replace(/^http:/, 'https:') : '';
+/* ------------------------------------------------------------
+   Um visor por palco, criado sob demanda e reaproveitado.
 
-  /* o modelo vem da Mojang; enquanto não chega, cai no que já se sabia.
-     o callback redesenha esta mesma prévia quando a resposta vier — sem
-     laço, porque na segunda passada o nick já está em cache */
-  const sabido = modeloDoNick(nick, () => buildSkinInto(sel, nick, sc, capeId, slim));
-  const texSlim = (sabido !== null) ? sabido
-    : ((texturaSlim !== null && nick === profile.nick) ? texturaSlim : !!slim);
-  const partesHtml = skinParts(slim, texSlim).map(p => {
-    const faces = caixa3d(tex, sc, p, 64);
-    /* centro da caixa: x + metade da largura, y + metade da altura */
-    const cx = (p.x + p.w / 2) * sc, cy = (p.y + p.h / 2) * sc;
-    /* Segunda camada bem colada: a 1.06 ela descolava e lia como pixel
-       solto flutuando em volta do braço e da cabeça.
-       E a camada de baixo cresce um tico: caixas encostadas com a face
-       exatamente no mesmo plano deixam fio de fundo passando entre elas,
-       e no papel claro isso lê como risco branco no ombro e na virilha. */
-    const grow = p.over ? ' scale3d(1.03,1.022,1.03)' : ' scale3d(1.022,1.011,1.022)';
-    return '<div style="position:absolute;left:50%;top:0;width:0;height:0;transform-style:preserve-3d;' +
-      'transform:translate3d(' + cx + 'px,' + cy + 'px,0)' + grow + '">' + faces + '</div>';
-  }).join('');
+   Criar um SkinViewer custa caro (contexto WebGL). O codigo antigo
+   remontava o DOM inteiro a cada troca de skin; aqui so trocamos a
+   textura de um visor que ja existe.
+   ------------------------------------------------------------ */
+const visores = {};
 
-  /* capa: painel 10×16 nas costas do torso, levemente inclinado.
-     vai ANTES das partes no DOM: entre irmaos preserve-3d o Chromium
-     respeita a ordem de pintura, e no fim ela cobria o peito. */
-  let capaHtml = '';
-  if (capeTex) {
-    /* Capa é uma CAIXA 10x16x1, não um painel. A folha de capa traz frente,
-       verso, as duas laterais e o topo — desenhar só a frente deixava a capa
-       sem espessura, e de lado ela sumia.
-       Layout da folha 64x32: frente (1,1) 10x16, verso (12,1), laterais 1px
-       em (0,1) e (11,1), topo (1,0) 10x1. É exatamente o mapa genérico de
-       faces, com d=1, então dá pra reusar caixa3d.
-       O pivô fica no ombro (y=8) e o giro leva só a barra de baixo pra trás.
-       O rotateY(180) põe a face "frente" apontando pras costas do jogador. */
-    const capaP = { w: 10, h: 16, d: 1, u: 0, v: 0 };
-    capaHtml =
-      '<div style="position:absolute;left:50%;top:0;width:0;height:0;transform-style:preserve-3d;' +
-        'transform:translate3d(0,' + (8 * sc) + 'px,0) rotateX(-11deg)">' +
-        '<div style="position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d;' +
-          'transform:translate3d(0,' + (8 * sc) + 'px,' + (-2.5 * sc) + 'px) rotateY(180deg) ' +
-            'scale3d(1.02,1.01,1.06)">' +
-          caixa3d(capeTex, sc, capaP, 32) +
-        '</div></div>';
-  }
-  stage.innerHTML = capaHtml + partesHtml;
-
-  stage.style.position = 'relative';
-  stage.style.height = (32 * sc) + 'px';
-  if (sel === '#skinBody') applySkinRotation();
-  else if (!stage.style.transform) stage.style.transform = 'perspective(1600px) rotateX(-4deg) rotateY(-22deg)';
+function visorDe(sel) {
+  if (visores[sel]) return visores[sel];
+  const canvas = $(sel);
+  if (!canvas) return null;
+  visores[sel] = criarVisor(canvas);
+  return visores[sel];
 }
 
-/* arraste — uma só implementação, atualizada em rAF pra não engasgar */
-function makeSkinDrag(stageSel, bodySel, onChange) {
-  const stage = $(stageSel); if (!stage) return null;
-  /* pitch quase reto: com -8 a câmera olhava de cima e achatava a cabeça */
-  const st = { yaw: -22, pitch: -4, zoom: 1 };
-  let drag = null, frame = 0;
-  const paint = () => {
-    frame = 0;
-    const b = $(bodySel); if (!b) return;
-    /* lente longa (1600) em vez de 900: menos distorção de perspectiva,
-       a cabeça deixa de encolher e o corpo para de parecer tombado */
-    b.style.transform = 'perspective(1600px) rotateX(' + st.pitch + 'deg) rotateY(' + st.yaw + 'deg)' +
-      (st.zoom === 1 ? '' : ' scale(' + st.zoom + ')');
-  };
-  const queue = () => { if (!frame) frame = requestAnimationFrame(paint); };
-  stage.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    drag = { x: e.clientX, y: e.clientY, yaw: st.yaw, pitch: st.pitch };
-    e.preventDefault();
-    /* ouvintes na janela: o palco é reconstruído a cada render e a
-       captura de ponteiro se perde junto com o elemento antigo */
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
-  });
-  function move(e) {
-    if (!drag) return;
-    st.yaw = drag.yaw + (e.clientX - drag.x) * 0.5;
-    st.pitch = Math.max(-32, Math.min(32, drag.pitch - (e.clientY - drag.y) * 0.35));
-    queue();
-  }
-  function stop() {
-    drag = null;
-    window.removeEventListener('pointermove', move);
-    window.removeEventListener('pointerup', stop);
-    window.removeEventListener('pointercancel', stop);
-  }
-  /* roda do mouse aproxima. O passo é multiplicativo pra o zoom
-     parecer igual perto e longe; somar daria salto no começo. */
-  stage.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const passo = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    st.zoom = Math.max(0.6, Math.min(4, st.zoom * passo));
-    queue();
-  }, { passive: false });
+/* `sc` continua na assinatura so pra nao mexer em quem chama: o
+   tamanho agora sai do palco, nao de um multiplicador fixo.
 
-  /* duplo clique volta tudo ao padrão, zoom incluso */
-  stage.addEventListener('dblclick', () => { st.yaw = -22; st.pitch = -4; st.zoom = 1; queue(); });
-  if (onChange) onChange(st, queue);
-  return { st, paint: queue };
+   `forcar` = a pessoa clicou PADRAO ou SLIM. Ai a escolha dela vale
+   acima de tudo; sem isso os dois botoes do editor nao mexeriam em
+   nada quando a Mojang ja tivesse respondido pelo nick. */
+function buildSkinInto(sel, nick, sc, capeId, slim, forcar) {
+  const v = visorDe(sel);
+  if (!v) return;
+
+  const capeDef = capasDisponiveis().find((c) => c.id === capeId);
+  const capeTex = (capeDef && capeDef.url) ? String(capeDef.url).replace(/^http:/, 'https:') : '';
+
+  /* null = "deixa a biblioteca decidir pela textura". So passamos um
+     valor quando ele veio da Mojang; palpite pelo nick errava em
+     conta pirata, e a textura nunca erra. */
+  const sabido = modeloDoNick(nick, () => buildSkinInto(sel, nick, sc, capeId, slim, forcar));
+  const modelo = forcar ? !!slim
+    : ((sabido !== null) ? sabido
+      : ((texturaSlim !== null && nick === profile.nick) ? texturaSlim : null));
+
+  vestir(v, SKIN_TEX(nick), capeTex, modelo);
 }
 
 let skinView = null;
-function applySkinRotation() { if (skinView) skinView.paint(); }
-
-skinView = makeSkinDrag('#skinStage', '#skinBody');
+/* Compat: antes isto repintava a transformacao na mao. O loop do
+   Three pinta sozinho, entao so garantimos que o visor existe. */
+function applySkinRotation() { skinView = skinView || visorDe('#skinBody'); }
 
 /* ============================================================
    SERVIDORES FIXOS
@@ -2057,12 +2092,12 @@ function renderServidores(status) {
     const linha = !st ? 'consultando…'
       : (vivo ? st.online.toLocaleString('pt-BR') + ' online' : 'fora do ar');
     const fundo = (st && st.icone) ? 'background-image:url(' + st.icone + ')' : '';
-    return '<button class="server" data-ip="' + esc(s.ip) + '" title="' + esc(s.ip) + '">' +
-      (s.meu ? '<span class="server__x" data-rm="' + esc(s.ip) + '" title="remover">×</span>' : '') +
-      '<span class="server__icon" style="' + fundo + '"></span>' +
-      '<span class="server__info">' +
-        '<span class="server__name">' + esc(s.nome) + '</span>' +
-        '<span class="server__on"><span class="server__dot' + (vivo ? '' : ' server__dot--off') + '"></span>' +
+    return '<button class="srv" data-ip="' + esc(s.ip) + '" title="' + esc(s.ip) + '">' +
+      (s.meu ? '<span class="srv__x" data-rm="' + esc(s.ip) + '" title="remover">×</span>' : '') +
+      '<span class="srv__icon" style="' + fundo + '"></span>' +
+      '<span class="srv__info">' +
+        '<span class="srv__name">' + esc(s.nome) + '</span>' +
+        '<span class="srv__on"><span class="srv__dot' + (vivo ? '' : ' srv__dot--off') + '"></span>' +
           esc(linha) + '</span>' +
       '</span></button>';
   }).join('');
@@ -2286,7 +2321,7 @@ function renderSkinEditor() {
       ${n === skinDraft ? `<span class="skincard__remover" data-skindel="${esc(n)}">REMOVER</span>` : ''}
     </button>`).join('');
 
-  buildSkinInto('#skinEdBody', skinDraft, 5, capeDraft, slimDraft);
+  buildSkinInto('#skinEdBody', skinDraft, 5, capeDraft, slimDraft, true);
   $$('[data-model]').forEach(b => b.classList.toggle('is-on', (b.dataset.model === 'slim') === !!slimDraft));
   if (skinEdView) skinEdView.paint();
 }
@@ -2422,7 +2457,7 @@ async function gravarCosmeticos() {
 }
 
 /* gira a prévia do editor de forma independente da tela de perfil */
-const skinEdView = makeSkinDrag('#skinEdStage', '#skinEdBody');
+const skinEdView = { paint: () => {} };   /* o visor 3D repinta sozinho */
 
 /* ---- painéis dev… ---- */
 /* ============================================================
@@ -2696,6 +2731,76 @@ function avisarNovidades(antes, depois) {
   }
 }
 
+/* ============================================================
+   AVISO DO /title
+
+   Codigo de cor do Minecraft: & seguido de 0-9a-f (cor) ou
+   l/o/n/m (negrito, italico, sublinhado, riscado) e r (reseta).
+
+   O texto vem de quem publicou o recado, entao passa por esc()
+   ANTES de virar HTML. Sem isso, um < no meio do aviso quebraria a
+   tela — e um aviso e a unica coisa aqui que uma pessoa escreve
+   pra aparecer na tela de outra. */
+const CORES_MC = '0123456789abcdef';
+const FORMATOS_MC = 'lonm';
+
+function pintarMinecraft(texto) {
+  const bruto = String(texto || '');
+  let html = '';
+  let abertas = 0;
+  let cor = null;
+  const formatos = new Set();
+
+  const abrir = () => {
+    const classes = (cor ? ['mc-' + cor] : []).concat([...formatos].map((f) => 'mc-' + f));
+    if (!classes.length) return;
+    html += '<span class="' + classes.join(' ') + '">';
+    abertas++;
+  };
+  const fechar = () => { while (abertas > 0) { html += '</span>'; abertas--; } };
+
+  for (let i = 0; i < bruto.length; i++) {
+    const c = bruto[i];
+    /* aceita & (o que se digita) e § (o que o jogo usa) */
+    if ((c === '&' || c === '§') && i + 1 < bruto.length) {
+      const cod = bruto[i + 1].toLowerCase();
+      if (CORES_MC.includes(cod) || FORMATOS_MC.includes(cod) || cod === 'r' || cod === 'k') {
+        fechar();
+        if (cod === 'r') { cor = null; formatos.clear(); }
+        else if (CORES_MC.includes(cod)) { cor = cod; formatos.clear(); }  /* cor reseta formato, como no jogo */
+        else if (FORMATOS_MC.includes(cod)) formatos.add(cod);
+        /* k (embaralhado) e reconhecido so pra nao aparecer cru na tela */
+        abrir();
+        i++;
+        continue;
+      }
+    }
+    html += esc(c);
+  }
+  fechar();
+  return html;
+}
+
+/* ---- mostrar o recado, uma vez por aviso ---- */
+const avisoVistoChave = 'xyven.avisoId';
+function mostrarAviso(aviso) {
+  if (!aviso || !aviso.id) return;
+  let visto = null;
+  try { visto = localStorage.getItem(avisoVistoChave); } catch (e) { /* sem storage */ }
+  if (String(visto) === String(aviso.id)) return;      /* ja viu este */
+
+  $('#avisoTitulo').innerHTML = pintarMinecraft(aviso.titulo);
+  $('#avisoTexto').innerHTML = pintarMinecraft(aviso.texto || '');
+  open($('#avisoOverlay'));
+
+  /* so marca como visto ao FECHAR: se a pessoa matar o launcher
+     antes de ler, o recado volta na proxima */
+  $('#avisoFechar').onclick = () => {
+    try { localStorage.setItem(avisoVistoChave, String(aviso.id)); } catch (e) { /* sem storage */ }
+    close($('#avisoOverlay'));
+  };
+}
+
 async function sincronizarConta() {
   /* Zera ANTES de perguntar. Sem isto, trocar de conta mantinha o
      contaRemota da anterior enquanto a resposta nao chegava — e se
@@ -2703,6 +2808,12 @@ async function sincronizarConta() {
      da Ny3san apareceu numa conta que nao tinha capa nenhuma. */
   contaRemota = null;
   const deQuem = state.account;
+
+  /* Passa a escutar esta conta. Fica aqui, e nao num lugar so, porque
+     a conta ativa muda: cada sincronizacao reaponta a campainha. */
+  if (deQuem && temApi() && window.api.xyven && window.api.xyven.seguir) {
+    window.api.xyven.seguir(deQuem).catch(() => { /* sem tempo real: o boot resolve */ });
+  }
 
   /* Sem conta ativa nao ha o que sincronizar. Sem esta guarda a
      chamada saia com o nick vazio, a API respondia "mande o nick" e
@@ -2724,6 +2835,7 @@ async function sincronizarConta() {
     if (deQuem !== state.account) return;
     if (rp && rp.ok) {
       avisarNovidades(lerCacheConta(deQuem), rp.dados);
+      mostrarAviso(rp.dados.aviso);
       /* grupo vem sempre 'player' do servidor; conta pirata nao manda em nada */
       contaRemota = rp.dados;
       gravarCacheConta(state.account, rp.dados);
@@ -2769,6 +2881,7 @@ async function sincronizarConta() {
   if (deQuem !== state.account) return;
   if (r && r.ok) {
     avisarNovidades(lerCacheConta(deQuem), r.dados);
+    mostrarAviso(r.dados.aviso);
     contaRemota = r.dados;
     gravarCacheConta(r.dados.nick, r.dados);
     aplicarConta(r.dados);
@@ -2873,6 +2986,9 @@ const COMANDOS = [
       termDim('                                  fica guardado até entrar');
       termDim('  /gift remove Fulano pro');
       termDim('  /account group Fulano dev');
+      termDim('  /title Fulano &e&lANÚNCIO! | &aVocê recebeu um vip!!');
+      termDim('');
+      termDim('cores: &0-&9 &a-&f · &l negrito &o itálico &n sublinhado &m riscado &r reseta');
       termDim('');
       termDim(listaDeItens());
       termDim('grupos válidos: player, dev');
@@ -2934,6 +3050,39 @@ const COMANDOS = [
       dadosDev.gravar();
       termOk(m.nick + (acao === 'add' ? ' recebeu ' : ' perdeu ') + item + '.');
       termDim('sem conta original logada: isto valeu só nesta máquina.');
+    }
+  },
+  {
+    nome: 'title', uso: '/title <nick> <título> | <descrição>', ajuda: 'recado pra uma pessoa',
+    roda: async (a) => {
+      const alvo = a[0] || '';
+      const tudo = a.slice(1).join(' ');
+      if (!alvo || !tudo.trim()) {
+        termErro('uso: /title <nick> <título> | <descrição>');
+        return termDim('exemplo: /title Fulano &e&lANÚNCIO! | &aVocê recebeu um vip!!');
+      }
+      /* o | separa porque os dois lados tem espaco; sem ele, nao
+         haveria como saber onde o titulo acaba */
+      const corte = tudo.indexOf('|');
+      const titulo = (corte >= 0 ? tudo.slice(0, corte) : tudo).trim();
+      const texto = corte >= 0 ? tudo.slice(corte + 1).trim() : '';
+      if (!titulo) return termErro('falta o título antes do |.');
+
+      const token = await tokenAtual();
+      if (!token || !window.api.xyven) {
+        return termErro('precisa de conta original logada — o recado vai pro servidor.');
+      }
+      const r = await window.api.xyven.title(token, alvo, titulo, texto).catch(() => null);
+      if (r && r.ok) {
+        termOk('recado enviado pra ' + r.dados.nick + ' (#' + r.dados.aviso.id + ').');
+        termDim('ela vê ao abrir o launcher. se nunca entrou, fica esperando.');
+        /* mandou pra si mesmo: busca agora em vez de esperar o boot */
+        if (String(r.dados.nick).toLowerCase() === String(state.account).toLowerCase()) {
+          sincronizarConta();
+        }
+        return;
+      }
+      termErro((r && r.erro) || 'não consegui falar com a API.');
     }
   },
   {
@@ -3246,3 +3395,13 @@ applyGroup(); renderProfile();
    estiver dormindo no plano gratis, a tela nao pode esperar.
    ============================================================ */
 sincronizarConta();
+
+/* Servidor tocou a campainha (/gift ou /title em cima desta conta):
+   refaz a consulta. Nao ha dado no evento — ele so diz "olha de novo".
+   Assim a pessoa ve na hora, sem fechar o launcher nem trocar de conta. */
+if (temApi() && window.api.xyven && window.api.xyven.aoMudar) {
+  window.api.xyven.aoMudar(() => {
+    console.log('[xyven] o servidor avisou que algo mudou; resincronizando');
+    sincronizarConta();
+  });
+}

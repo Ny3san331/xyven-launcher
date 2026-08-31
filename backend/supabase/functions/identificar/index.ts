@@ -3,7 +3,7 @@
    Diz quem é a pessoa e o que ela tem. Também é o que cria a linha
    dela no banco na primeira vez: sem isso, não haveria como dar
    item pra quem nunca abriu o launcher. */
-import { admin, garantirJogador, json, quemEh } from '../_shared/comum.ts';
+import { admin, garantirJogador, json, quemEh, ultimoAviso } from '../_shared/comum.ts';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ erro: 'use POST.' }, 405);
@@ -19,6 +19,7 @@ Deno.serve(async (req) => {
     nick: j.nick,
     grupo: j.grupo,
     cargos: j.cargos ?? [],
-    capas: j.capas ?? []
+    capas: j.capas ?? [],
+    aviso: await ultimoAviso(sb, j.nick)
   });
 });
