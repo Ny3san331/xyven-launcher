@@ -371,8 +371,13 @@ export async function temRefresh(nick: string): Promise<boolean> {
 
 /* renova em silêncio na hora de jogar */
 export async function renovar(nick: string): Promise<ContaMS | null> {
-  const refresh = (await lerCofre())[nick.toLowerCase()];
-  if (!refresh) return null;
+  const cofre = await lerCofre();
+  const refresh = cofre[nick.toLowerCase()];
+  if (!refresh) {
+    await anotar('renovar: cofre sem entrada para ' + nick +
+      ' (chaves no cofre: ' + Object.keys(cofre).join(",") + ')');
+    return null;
+  }
 
   const r = await fetch(OAUTH_TOKEN, {
     method: 'POST',
@@ -383,7 +388,11 @@ export async function renovar(nick: string): Promise<ContaMS | null> {
     })
   });
   const j: any = await r.json();
-  if (!r.ok || !j.access_token) return null;      /* expirou: precisa logar de novo */
+  if (!r.ok || !j.access_token) {
+    await anotar('renovar: Microsoft recusou (' + r.status + ') ' +
+      String(j && (j.error_description || j.error) || '').slice(0, 200));
+    return null;
+  }
 
   const conta = await montarConta(j.access_token);
   if (j.refresh_token) await guardarRefresh(conta.nick, j.refresh_token);

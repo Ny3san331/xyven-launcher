@@ -128,14 +128,38 @@ export const semItem = (lista: string[] | null, item: string) =>
 export const tipoDoItem = (item: string): 'cargo' | 'capa' | null =>
   CARGOS.includes(item) ? 'cargo' : (CAPAS.includes(item) ? 'capa' : null);
 
-/* quem já se identificou com este nick, ou null */
+/* Conta offline entra na tabela com uuid sintetico. Serve pra ela
+   aparecer na lista e guardar cosmetico; nao vale como identidade. */
+export const UUID_PIRATA = (nick: string) => 'pirata:' + chaveNick(nick);
+export const ehLinhaPirata = (uuid: string) => String(uuid).startsWith('pirata:');
+
+/* 3 a 16, letras, numeros e _. Barra lixo antes de virar linha no
+   banco: /consultar e publico, e sem isto um script encheria a tabela
+   com qualquer string. */
+export const nickValido = (nick: string) => /^[A-Za-z0-9_]{3,16}$/.test(String(nick).trim());
+
+/* Quem tem este nick. Podem existir dois — o premium de verdade e um
+   homonimo offline. O premium ganha: ele provou quem e. */
 export async function acharJogador(sb: ReturnType<typeof admin>, nick: string) {
-  const { data } = await sb
+  const { data } = await sb.from('jogadores').select('*').ilike('nick', chaveNick(nick));
+  if (!data || !data.length) return null;
+  return data.find((j: any) => !ehLinhaPirata(j.uuid)) || data[0];
+}
+
+/* cria (ou atualiza a data de) a linha de uma conta offline */
+export async function registrarPirata(sb: ReturnType<typeof admin>, nick: string) {
+  if (!nickValido(nick)) return null;
+  const { data, error } = await sb
     .from('jogadores')
-    .select('*')
-    .ilike('nick', chaveNick(nick))
-    .maybeSingle();
-  return data || null;
+    .upsert(
+      { uuid: UUID_PIRATA(nick), nick: String(nick).trim(), grupo: 'player',
+        visto_em: new Date().toISOString() },
+      { onConflict: 'uuid' }
+    )
+    .select()
+    .single();
+  if (error) return null;
+  return data;
 }
 
 /* ------------------------------------------------------------

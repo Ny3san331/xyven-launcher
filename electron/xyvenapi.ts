@@ -72,7 +72,8 @@ export const identificar = (token: string) => chamar<Conta>('identificar', token
 /* Leitura publica, sem token: e o unico jeito de uma conta pirata
    descobrir o que ganhou. Ela nao tem o que provar pra Mojang, entao
    /identificar nunca funcionaria pra ela. */
-export const consultar = (nick: string) => chamar<Conta>('consultar', 'sem-token', { nick });
+export const consultar = (nick: string, registrar = false) =>
+  chamar<Conta>('consultar', 'sem-token', { nick, registrar });
 
 export const gift = (token: string, alvo: string, item: string, acao: 'dar' | 'tirar' = 'dar') =>
   chamar<{

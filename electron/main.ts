@@ -1,11 +1,49 @@
+/* injetado pelo vite a partir do package.json — ver vite.main.config.ts */
+declare const __VERSAO__: string;
+
 import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron';
 import { join } from 'path';
+import { existsSync, cpSync } from 'fs';
 import * as mc from './minecraft';
 import * as auth from './auth';
 import * as servidores from './servidores';
 import * as prints from './prints';
 import * as xyvenapi from './xyvenapi';
 import * as discord from './discord';
+
+/* ============================================================
+   PASTA DE DADOS — a mesma em desenvolvimento e empacotado.
+
+   O Electron escolhe userData pelo nome do app: em dev usa o `name`
+   do package.json (xyven-launcher), empacotado usa o productName
+   (Xyven). Sao duas pastas, entao token, contas e configuracao nao
+   se enxergavam — abrir por `npm start` e abrir o instalado eram
+   dois launchers diferentes pro sistema.
+
+   Fixar aqui tambem protege o futuro: mudar o productName um dia
+   deixaria de apagar o login de todo mundo.
+
+   Precisa vir antes de qualquer coisa que leia userData.
+   ============================================================ */
+const PASTA_DADOS = join(app.getPath('appData'), 'Xyven');
+
+/* Mudanca de pasta so vale se os dados forem junto. Copia uma vez,
+   e so quando o destino ainda nao existe — nunca sobrescreve. */
+try {
+  const antiga = join(app.getPath('appData'), 'xyven-launcher');
+  if (!existsSync(PASTA_DADOS) && existsSync(antiga)) {
+    cpSync(antiga, PASTA_DADOS, {
+      recursive: true,
+      /* cache do Chromium nao vale a copia: e grande, e regenera sozinho */
+      filter: (origem) => !/[\/](Cache|Code Cache|GPUCache|DawnCache|Service Worker)$/i.test(origem)
+    });
+    console.log('[main] dados migrados de xyven-launcher para Xyven');
+  }
+} catch (e: any) {
+  console.log('[main] nao consegui migrar os dados: ' + (e?.message || e));
+}
+
+app.setPath('userData', PASTA_DADOS);
 import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { createHash } from 'crypto';
@@ -80,7 +118,7 @@ function createWindow() {
 
   /* ---------- diálogo de pasta e versão (o preload já expunha, faltava o handler) ---------- */
   ipcMain.handle('dialog:open', async (_e, opts) => dialog.showOpenDialog(win, opts || { properties: ['openDirectory'] }));
-  ipcMain.handle('app:version', () => app.getVersion());
+  ipcMain.handle('app:version', () => __VERSAO__);
 
   /* "Abrir com o PC". O estado real mora no Windows, nao no nosso storage:
      ler de volta e o unico jeito do toggle nao mentir depois de um reboot
@@ -101,7 +139,7 @@ function createWindow() {
   /* ---------- verificar atualização ----------
      compara a versão do app com a última Release do repositório. */
   ipcMain.handle('app:atualizacao', async () => {
-    const atual = app.getVersion();
+    const atual = __VERSAO__;
     const nums = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);
     /* compara numero a numero: 1.10.0 e maior que 1.9.0 */
     const maiorQue = (a: number[], b: number[]) => {
@@ -133,11 +171,9 @@ function createWindow() {
       }
       const ultima = limpo(melhor.tag_name);
 
-      return {
-        ok: true, atual, ultima,
-        temNova: maiorQue(nums(ultima), nums(atual)),
-        link: melhor.html_url || null
-      };
+      const temNova = maiorQue(nums(ultima), nums(atual));
+      console.log('[atualizacao] atual=' + atual + ' ultima=' + ultima + ' temNova=' + temNova);
+      return { ok: true, atual, ultima, temNova, link: melhor.html_url || null };
     } catch (e: any) {
       return { ok: false, atual, erro: 'sem conexão com o GitHub.' };
     }
@@ -178,7 +214,7 @@ function createWindow() {
       for (const c of validas) {
         if (maiorQue(nums(limpo(c.tag_name)), nums(limpo(melhor.tag_name)))) melhor = c;
       }
-      if (!maiorQue(nums(limpo(melhor.tag_name)), nums(app.getVersion()))) {
+      if (!maiorQue(nums(limpo(melhor.tag_name)), nums(__VERSAO__))) {
         return { ok: false, erro: 'você já está na versão mais recente.' };
       }
 
@@ -289,7 +325,8 @@ function createWindow() {
   ipcMain.handle('discord:desligar', () => { discord.desligar(); return true; });
   /* API do Xyven: cargos e capas compartilhados entre as máquinas */
   ipcMain.handle('xyven:identificar', (_e, token: string) => xyvenapi.identificar(String(token)));
-  ipcMain.handle('xyven:consultar', (_e, nick: string) => xyvenapi.consultar(String(nick)));
+  ipcMain.handle('xyven:consultar', (_e, nick: string, registrar?: boolean) =>
+    xyvenapi.consultar(String(nick), !!registrar));
   ipcMain.handle('xyven:gift', (_e, token: string, alvo: string, item: string, acao: string) =>
     xyvenapi.gift(String(token), String(alvo), String(item), acao === 'tirar' ? 'tirar' : 'dar'));
   ipcMain.handle('xyven:grupo', (_e, token: string, alvo: string, grupo: string) =>

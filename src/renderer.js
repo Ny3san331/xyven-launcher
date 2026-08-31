@@ -2383,8 +2383,10 @@ async function subirSkinPraMojang(nick, slim) {
     token: sessao.accessToken, url: SKIN_TEX(nick), slim: !!slim
   }).catch((e) => ({ ok: false, erro: String(e && e.message || e) }));
 
-  if (r && r.ok) avisarSkin('skin de <b>' + esc(nick) + '</b> aplicada na sua conta. vale em qualquer servidor.', true);
-  else avisarSkin('a skin não trocou no jogo: ' + esc((r && r.erro) || 'erro desconhecido'), false);
+  /* Sucesso nao avisa: voce acabou de clicar em USAR ESTA SKIN e ve a
+     mudanca na tela — o sino so repetia o obvio. Falha continua
+     avisando, porque ai nada muda visualmente e o silencio enganaria. */
+  if (!r || !r.ok) avisarSkin('a skin não trocou no jogo: ' + esc((r && r.erro) || 'erro desconhecido'), false);
 }
 
 function avisarSkin(html, ok) {
@@ -2656,6 +2658,10 @@ async function sincronizarConta() {
   contaRemota = null;
   const deQuem = state.account;
 
+  /* Sem conta ativa nao ha o que sincronizar. Sem esta guarda a
+     chamada saia com o nick vazio, a API respondia "mande o nick" e
+     o erro poluia o log escondendo o que importava. */
+  if (!deQuem) return;
   if (!temApi() || !window.api.xyven) return;
 
   const token = await tokenAtual();
@@ -2664,7 +2670,10 @@ async function sincronizarConta() {
      e publica, pela chave `pirata:<nick>`. Sem isto o /gift gravaria e
      o launcher dela nunca leria. */
   if (!token && ehPirata(state.account)) {
-    const rp = await window.api.xyven.consultar(deQuem).catch(() => null);
+    /* true = "esta e a conta ativa de alguem", nao uma consulta solta.
+       So a conta que a pessoa esta usando entra na tabela; /account info
+       de terceiro continua sendo leitura pura. */
+    const rp = await window.api.xyven.consultar(deQuem, true).catch(() => null);
     /* trocou de conta enquanto a resposta vinha: joga fora */
     if (deQuem !== state.account) return;
     if (rp && rp.ok) {
@@ -2685,8 +2694,28 @@ async function sincronizarConta() {
     /* Falar alto aqui foi decisao consciente: este caminho ja falhou em
        silencio duas vezes (TDZ, e refresh vencido) e nos dois casos o
        sintoma foi identico — nada acontece, nenhum sinal. */
-    console.log('[xyven] sem token para ' + state.account + ' (renovacao falhou — entre de novo na conta)');
+    console.log('[xyven] sem token para ' + state.account + ' (renovacao falhou)');
+
+    /* Nao poder CONFIRMAR quem voce e nao e o mesmo que voce nao ser
+       nada. Sem este cache, uma renovacao que falha derruba o dev na
+       hora, e a pessoa acha que so relogando resolve. */
+    const g = lerCacheConta(state.account);
+    if (g) {
+      contaRemota = g;
+      aplicarConta(g);
+      console.log('[xyven] usando o cache da ultima vez: grupo=' + g.grupo +
+        ' cargos=[' + (g.cargos || []).join(',') + ']');
+    }
     return;
+  }
+
+  /* Renovar o token preencheu o contaMS, e e nele que vem o catalogo
+     COMPLETO de capas da Mojang. No boot ele e null, e carregarCapas
+     ja tinha rodado pelo caminho publico, que so conhece a capa ativa
+     — por isso aparecia uma so, como "CAPA DA CONTA". */
+  if (contaMS && contaMS.nick === deQuem) {
+    await carregarCapas(deQuem);
+    if (deQuem === state.account && !$('#skinOverlay').hidden) renderSkinEditor();
   }
 
   const r = await window.api.xyven.identificar(token).catch(() => null);

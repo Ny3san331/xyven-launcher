@@ -43,7 +43,8 @@ contextBridge.exposeInMainWorld('api', {
   servidoresStatus: (lista: string[]) => ipcRenderer.invoke('servidores:status', lista),
   xyven: {
     identificar: (token: string) => ipcRenderer.invoke('xyven:identificar', token),
-    consultar: (nick: string) => ipcRenderer.invoke('xyven:consultar', nick),
+    consultar: (nick: string, registrar?: boolean) =>
+      ipcRenderer.invoke('xyven:consultar', nick, registrar),
     gift: (token: string, alvo: string, item: string, acao?: string) =>
       ipcRenderer.invoke('xyven:gift', token, alvo, item, acao || 'dar'),
     grupo: (token: string, alvo: string, grupo: string) => ipcRenderer.invoke('xyven:grupo', token, alvo, grupo),
