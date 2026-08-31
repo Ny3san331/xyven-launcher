@@ -2,7 +2,8 @@
 
    Diferente do /gift, isto NAO fica pendente: grupo e permissao, e
    permissao so pra quem ja provou quem e. Nick sozinho nao basta. */
-import { acharJogador, admin, erro, exigirDev, json, quemEh } from '../_shared/comum.ts';
+import { acharJogador, admin, erro, json, quemEh } from '../_shared/comum.ts';
+import { exigirPerm } from '../_shared/perms.ts';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ erro: 'use POST.' }, 405);
@@ -11,7 +12,10 @@ Deno.serve(async (req) => {
   if (quem instanceof Response) return quem;
 
   const sb = admin();
-  const barrado = await exigirDev(sb, quem);
+  /* `grupo` virou legado: quem manda agora e o cargo. Mantido pra
+     nao quebrar quem ainda usa /account group, e porque e a ponte
+     que impede tranca total enquanto os cargos nao estao montados. */
+  const barrado = await exigirPerm(sb, quem, 'cargos');
   if (barrado) return barrado;
 
   const corpo = await req.json().catch(() => null);

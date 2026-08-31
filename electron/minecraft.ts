@@ -188,13 +188,32 @@ function caminhoMaven(nome: string): string {
    ------------------------------------------------------------ */
 const SO = 'windows';
 
+/* Recursos opcionais que o launcher NAO oferece. Da 1.13 em diante o
+   JSON traz argumentos presos a cada um destes:
+
+     is_demo_user            --demo
+     has_custom_resolution   --width/--height
+     has_quick_plays_support --quickPlayPath
+     is_quick_play_*         --quickPlaySingleplayer e irmaos
+
+   Ligar um deles e escolha do launcher, e nao ligamos nenhum. */
+const RECURSOS_LIGADOS: Record<string, boolean> = {};
+
 function regrasPermitem(regras: any[] | undefined): boolean {
   if (!regras || !regras.length) return true;
   let permitido = false;
   for (const r of regras) {
     /* regra sem "os" vale pra todo mundo */
-    const casa = !r.os || !r.os.name || r.os.name === SO;
-    if (casa) permitido = r.action === 'allow';
+    const casaSO = !r.os || !r.os.name || r.os.name === SO;
+
+    /* Sem esta parte o launcher aceitava TODA regra de `features` e
+       mandava --demo junto com as quatro opcoes de quick play. O jogo
+       recusava com "Only one quick play option can be specified" e
+       nem chegava a abrir janela. */
+    const casaRecursos = !r.features || Object.keys(r.features)
+      .every((k) => !!RECURSOS_LIGADOS[k] === !!r.features[k]);
+
+    if (casaSO && casaRecursos) permitido = r.action === 'allow';
   }
   return permitido;
 }
@@ -398,6 +417,28 @@ function trocar(texto: string, mapa: Record<string, string>): string {
   return texto.replace(/\$\{([\w_]+)\}/g, (todo, chave) => (chave in mapa ? mapa[chave] : todo));
 }
 
+/* Tira o que ficou com ${...} sem substituir, junto com o --flag dele.
+
+   Nem tudo que o JSON pede o launcher sabe preencher: `${clientid}` e
+   `${auth_xuid}` vem soltos, sem regra nenhuma, e nao temos os valores.
+   Passar o texto cru faria o jogo receber "${clientid}" como se fosse
+   um id de verdade. Melhor nao mandar o par. */
+function semNaoResolvidos(args: string[]): string[] {
+  const fora: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const atual = args[i];
+    const proximo = args[i + 1];
+    /* --flag seguido de valor nao resolvido: pula os dois */
+    if (atual.startsWith('--') && typeof proximo === 'string' && proximo.includes('${')) {
+      i++;
+      continue;
+    }
+    if (atual.includes('${')) continue;
+    fora.push(atual);
+  }
+  return fora;
+}
+
 function argumentosDoJogo(vjson: any, mapa: Record<string, string>): string[] {
   /* versões novas: arguments.game com regras; antigas: minecraftArguments */
   if (vjson.arguments?.game) {
@@ -409,7 +450,7 @@ function argumentosDoJogo(vjson: any, mapa: Record<string, string>): string[] {
         v.forEach((x: string) => saida.push(trocar(x, mapa)));
       }
     }
-    return saida;
+    return semNaoResolvidos(saida);
   }
   if (typeof vjson.minecraftArguments === 'string') {
     return vjson.minecraftArguments.split(/\s+/).filter(Boolean).map((a: string) => trocar(a, mapa));

@@ -338,6 +338,10 @@ function createWindow() {
      O renderer diz qual conta esta ativa; quando a linha dela muda
      no banco, devolvemos um 'xyven:mudou' e ele refaz a consulta.
      O evento nao traz conteudo — so o aviso de que ha o que buscar. */
+  ipcMain.handle('xyven:listarCargos', () => xyvenapi.listarCargos());
+  ipcMain.handle('xyven:cargo', (_e, token: string, corpo: Record<string, unknown>) =>
+    xyvenapi.cargo(String(token), corpo || {}));
+
   ipcMain.handle('xyven:listarPosts', () => xyvenapi.listarPosts());
   ipcMain.handle('xyven:post', (_e, token: string, corpo: Record<string, unknown>) =>
     xyvenapi.post(String(token), corpo || {}));

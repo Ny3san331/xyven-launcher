@@ -4,6 +4,7 @@
    dela no banco na primeira vez: sem isso, não haveria como dar
    item pra quem nunca abriu o launcher. */
 import { admin, garantirJogador, json, quemEh, ultimoAviso } from '../_shared/comum.ts';
+import { permissoesDe } from '../_shared/perms.ts';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ erro: 'use POST.' }, 405);
@@ -20,6 +21,9 @@ Deno.serve(async (req) => {
     grupo: j.grupo,
     cargos: j.cargos ?? [],
     capas: j.capas ?? [],
+    /* o launcher usa isto pra decidir o que mostrar; a trava de
+       verdade continua sendo no servidor, a cada acao */
+    permissoes: [...(await permissoesDe(sb, quem))],
     aviso: await ultimoAviso(sb, j.nick)
   });
 });

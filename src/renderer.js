@@ -1669,10 +1669,10 @@ function renderFeed() {
         <p class="post__body post__body--clamp selectable">${esc(p.body).replace(/\n/g, '<br>')}</p>
         <div class="post__actions">
           <button class="link-btn" data-open-post="${p.id}">ler tudo</button>
-          <button class="link-btn dev-only" data-edit="${p.id}">editar</button>
-          <button class="link-btn dev-only" data-pin="${p.id}">${p.pinned ? 'desafixar' : 'fixar'}</button>
-          <button class="link-btn dev-only" data-home="${p.id}">${p.featured ? 'tirar do início' : 'mostrar no início'}</button>
-          <button class="link-btn link-btn--danger dev-only" data-del="${p.id}">apagar</button>
+          <button class="link-btn perm perm--escrever" data-edit="${p.id}">editar</button>
+          <button class="link-btn perm perm--fixar" data-pin="${p.id}">${p.pinned ? 'desafixar' : 'fixar'}</button>
+          <button class="link-btn perm perm--fixar" data-home="${p.id}">${p.featured ? 'tirar do início' : 'mostrar no início'}</button>
+          <button class="link-btn link-btn--danger perm perm--apagar" data-del="${p.id}">apagar</button>
         </div>
       </div>
     </article>`).join('');
@@ -1860,21 +1860,78 @@ carregarPosts();
 /* Alguem escreveu, fixou ou apagou: chega na hora, sem reabrir. */
 if (temApi() && window.api.xyven && window.api.xyven.aoMudarPosts) {
   window.api.xyven.aoMudarPosts(() => {
-    console.log('[xyven] o mural mudou; recarregando');
+    /* o mesmo canal traz mudanca de cargo: os dois sao publicos e
+       valem pra todo mundo, entao nao vale abrir um segundo socket */
+    console.log('[xyven] mural ou cargos mudaram; recarregando');
     carregarPosts();
+    carregarCargos();
   });
 }
 
 /* ============================================================
    10.c TELA DE PERFIL — skin 3D, horas e servidores
    ============================================================ */
-const ALL_BADGES = [
-  { id: 'dev',      label: 'DEV',        bg: 'var(--teal)',      fg: '#f4e7ca' },
-  { id: 'fundador', label: 'FUNDADOR',   bg: 'var(--salmon)',    fg: 'var(--on-accent,#33261c)' },
-  { id: 'pro',      label: 'PRO',        bg: 'var(--mustard)',   fg: 'var(--on-accent,#33261c)' },
-  { id: 'beta',     label: 'BETA',       bg: 'var(--sand-dark)', fg: 'var(--ink)' },
-  { id: 'campeao',  label: 'CAMPEÃO',    bg: 'var(--ink)',       fg: 'var(--paper)' }
+/* ------------------------------------------------------------
+   CARGOS
+
+   Deixaram de ser lista fixa no codigo: agora sao linhas da tabela
+   `cargos`, criadas pelo /cargo create. Um cargo carrega o nome, a
+   cor da etiqueta e as permissoes — nao ha mais grupo separado. Se a
+   pessoa tem o cargo, tem a etiqueta; se tem a etiqueta, tem o que o
+   cargo carrega.
+
+   A cor e um TOKEN do tema, nunca hex: o modo escuro troca os tokens,
+   e cor fixa no banco ficaria ilegivel quando o tema virasse.
+   ------------------------------------------------------------ */
+const CORES_CARGO = {
+  teal:    { bg: 'var(--teal)',      fg: '#f4e7ca' },
+  salmon:  { bg: 'var(--salmon)',    fg: 'var(--on-accent,#33261c)' },
+  mustard: { bg: 'var(--mustard)',   fg: 'var(--on-accent,#33261c)' },
+  sand:    { bg: 'var(--sand-dark)', fg: 'var(--ink)' },
+  ink:     { bg: 'var(--ink)',       fg: 'var(--paper)' },
+  /* Estas tres ja existiam no tema e nenhum cargo usava. Sao as
+     ultimas: passar daqui exige token novo no :root, e cor nova e
+     decisao de quem faz o design, nao minha. */
+  red:     { bg: 'var(--red)',       fg: 'var(--paper)' },
+  muted:   { bg: 'var(--muted)',     fg: 'var(--paper)' },
+  paper:   { bg: 'var(--paper)',     fg: 'var(--ink)' }
+};
+
+/* Os cinco que sempre existiram. Servem de plano B enquanto a
+   resposta do servidor nao chega e quando nao ha rede — sem isto o
+   perfil abriria sem etiqueta nenhuma e pareceria que a pessoa
+   perdeu os cargos. */
+let ALL_BADGES = [
+  { id: 'dev',      label: 'DEV',      cor: 'teal',    permissoes: ['*'] },
+  { id: 'fundador', label: 'FUNDADOR', cor: 'salmon',  permissoes: [] },
+  { id: 'pro',      label: 'PRO',      cor: 'mustard', permissoes: [] },
+  { id: 'beta',     label: 'BETA',     cor: 'sand',    permissoes: [] },
+  { id: 'campeao',  label: 'CAMPEÃO',  cor: 'ink',     permissoes: [] }
 ];
+
+const corDoCargo = (c) => CORES_CARGO[(c && c.cor) || 'sand'] || CORES_CARGO.sand;
+
+let buscandoCargos = false;
+async function carregarCargos() {
+  if (buscandoCargos) return;
+  if (!temApi() || !window.api.xyven || !window.api.xyven.listarCargos) return;
+  buscandoCargos = true;
+  try {
+    const r = await window.api.xyven.listarCargos();
+    if (r && r.ok && Array.isArray(r.dados.cargos) && r.dados.cargos.length) {
+      ALL_BADGES = r.dados.cargos.map((c) => ({
+        id: c.id, label: c.nome, cor: c.cor, permissoes: c.permissoes || []
+      }));
+      renderProfile();
+    } else if (r && !r.ok) {
+      console.log('[xyven] cargos: ' + r.erro);
+    }
+  } catch (e) {
+    console.log('[xyven] cargos falhou: ' + (e && e.message));
+  } finally {
+    buscandoCargos = false;
+  }
+}
 
 const PROFILE_DEFAULT = {
   nick: 'Ny3san', skin: 'Ny3san', since: '03/2024', slim: false,
@@ -1919,10 +1976,25 @@ const saveMembers = () => { try { localStorage.setItem('xyven.members', JSON.str
 
 const memberOf = (nick) => members.find(m => m.nick.toLowerCase() === String(nick).toLowerCase());
 const badgesOf = (nick) => (memberOf(nick) || { badges: [] }).badges;
-const groupOf = (nick) => (memberOf(nick) || { group: 'player' }).group;
+/* `group` fica na estrutura local so porque o cache antigo em
+   localStorage ainda tem esse campo; nada le mais o valor. */
 
-/* o grupo da conta ativa controla o que aparece: body[data-group="dev"] libera .dev-only */
-function applyGroup() { document.body.dataset.group = groupOf(state.account); }
+/* Permissoes da conta ativa, ditas pelo servidor. Vazio ate a
+   primeira resposta: melhor esconder um botao por um segundo do que
+   mostrar um que a pessoa nao pode usar. */
+let permissoesAtuais = [];
+
+/* O que aparece na tela sai daqui: body[data-perms~="terminal"] libera
+   o .dev-only, e assim por diante. Isto e SO aparencia — cada acao e
+   conferida de novo no servidor, que e onde a trava vale. */
+function applyGroup() {
+  /* `data-group` saiu junto com o conceito de grupo. Nada no CSS
+     olha pra ele desde que a visibilidade passou a sair das
+     permissoes — deixar so daria a impressao de que ainda decide
+     alguma coisa. */
+  delete document.body.dataset.group;
+  document.body.dataset.perms = permissoesAtuais.join(' ');
+}
 
 function renderProfile() {
   $('#profName').textContent = profile.nick;
@@ -1937,7 +2009,8 @@ function renderProfile() {
 
   $('#profBadges').innerHTML = badgesOf(profile.nick).map(id => {
     const b = ALL_BADGES.find(x => x.id === id); if (!b) return '';
-    return `<span class="badge" style="background:${b.bg};color:${b.fg}">${b.label}</span>`;
+    const c = corDoCargo(b);
+    return `<span class="badge" style="background:${c.bg};color:${c.fg}">${esc(b.label)}</span>`;
   }).join('');
 
   const t = horasDe(profile.nick);
@@ -2667,6 +2740,11 @@ function aplicarConta(c) {
   m.nick = c.nick;
   m.group = c.grupo || 'player';
   m.badges = Array.isArray(c.cargos) ? c.cargos.slice() : [];
+  /* so a conta ATIVA manda no que aparece; ver /account info de um
+     terceiro nao pode liberar botao nenhum */
+  if (String(c.nick).toLowerCase() === String(state.account).toLowerCase()) {
+    permissoesAtuais = Array.isArray(c.permissoes) ? c.permissoes.slice() : [];
+  }
   saveMembers();
 
   /* A capa em uso e guardada uma vez so, nao por conta. Trocando de
@@ -2944,6 +3022,39 @@ const dadosDev = {
 };
 
 /* ---- saída ---- */
+/* Linha com um quadradinho da cor na frente.
+
+   O termLinha normal usa textContent de proposito — tudo que entra no
+   terminal e texto de fora e nao pode virar HTML. Aqui a cor nao vem
+   do usuario: vem de CORES_CARGO, que so tem token do tema. Por isso
+   monto os elementos na mao em vez de aceitar uma string de estilo. */
+function termCor(token, texto) {
+  const out = $('#termOut'); if (!out) return;
+  const def = CORES_CARGO[token]; if (!def) return;
+
+  const linha = document.createElement('div');
+  linha.style.display = 'flex';
+  linha.style.alignItems = 'center';
+  linha.style.gap = '10px';
+
+  const amostra = document.createElement('span');
+  amostra.style.width = '30px';
+  amostra.style.height = '14px';
+  amostra.style.flex = 'none';
+  /* 2px como as molduras internas de imagem do tema; o contorno e o
+     que separa a amostra `sand` do fundo, que e quase a mesma cor */
+  amostra.style.border = '2px solid var(--ink)';
+  amostra.style.background = def.bg;
+
+  const rotulo = document.createElement('span');
+  rotulo.textContent = texto;
+
+  linha.appendChild(amostra);
+  linha.appendChild(rotulo);
+  out.appendChild(linha);
+  out.scrollTop = out.scrollHeight;
+}
+
 function termLinha(texto, classe) {
   const out = $('#termOut'); if (!out) return;
   const d = document.createElement('div');
@@ -2956,6 +3067,77 @@ const termOk = (t) => termLinha(t);
 const termErro = (t) => termLinha(t, 'erro');
 const termDim = (t) => termLinha(t, 'dim');
 
+/* Espelho do catalogo do servidor (_shared/perms.ts). Existe aqui so
+   pra o /perms list poder explicar cada uma sem ida a rede; quem
+   recusa de verdade e o servidor, que tem a lista de verdade. */
+const PERMISSOES = [
+  ['*',              'tudo, inclusive o que for criado depois'],
+  ['terminal',       'abrir o terminal (Ctrl+Shift+E)'],
+  ['gift',           'dar e tirar cargo e capa'],
+  ['title',          'mandar recado pra alguém'],
+  ['cargos',         'criar, editar e apagar cargo'],
+  ['posts.escrever', 'escrever e editar no mural'],
+  ['posts.fixar',    'fixar e destacar postagem'],
+  ['posts.apagar',   'apagar postagem']
+];
+const CORES_VALIDAS = ['teal', 'salmon', 'mustard', 'sand', 'ink', 'red', 'muted', 'paper'];
+
+/* ------------------------------------------------------------
+   Lista de alvos separada por virgula
+
+     /gift add Ny3san, Alaninha, _xvu caveira
+     /title Ny3san, Alaninha &4Oi | &ctudo bem?
+
+   O terminal ja quebrou a linha em espacos, entao a virgula chega
+   grudada no nick ("Ny3san,"). Aqui os pedacos sao remontados.
+
+   Para no primeiro que NAO parece nick. Sem essa checagem, uma
+   virgula dentro do texto do /title ("&4Ola, pessoal") faria "&4Ola"
+   virar alvo — e o recado ia pra um nick que nao existe em vez de
+   pra quem devia.
+   ------------------------------------------------------------ */
+/* NICK_OK ja existe la em cima, no cadastro de conta pirata: a regra
+   do que e um nick valido e a mesma, e duas copias divergiriam. */
+function lerNicks(a) {
+  const nicks = [];
+  let i = 0;
+
+  while (i < a.length) {
+    const bruto = String(a[i]);
+    /* "Ny3san,Alaninha" sem espaco e um pedaco so pro terminal, mas
+       sao dois nicks. Por isso corta a virgula DENTRO do pedaco, e
+       nao so a do fim. */
+    const partes = bruto.split(',');
+    const seguiu = bruto.endsWith(',');
+
+    /* junta antes de aceitar: se qualquer parte nao parecer nick, o
+       pedaco inteiro volta pro resto, sem deixar metade pra tras */
+    const candidatos = [];
+    let presta = true;
+    for (const parte of partes) {
+      const nick = parte.trim();
+      if (!nick) continue;                    /* virgula dupla ou solta */
+      if (!NICK_OK.test(nick)) { presta = false; break; }
+      candidatos.push(nick);
+    }
+    if (!presta) break;
+
+    nicks.push(...candidatos);
+    i++;
+    if (!seguiu) break;                       /* sem virgula no fim, acabou */
+  }
+
+  /* sem repetir: /gift add Ny3san, Ny3san mandaria duas vezes */
+  const vistos = new Set();
+  const unicos = nicks.filter((x) => {
+    const k = x.toLowerCase();
+    if (vistos.has(k)) return false;
+    vistos.add(k);
+    return true;
+  });
+  return { nicks: unicos, resto: a.slice(i) };
+}
+
 const idsDeCargo = () => ALL_BADGES.map((b) => b.id);
 const idsDeCapa = () => CAPAS_XYVEN.map((c) => c.id);
 /* o servidor aceita cargo e capa no mesmo comando; o terminal precisa
@@ -2965,7 +3147,7 @@ const listaDeItens = () => 'cargos: ' + idsDeCargo().join(', ') + ' · capas: ' 
 
 function descreverMembro(m) {
   const cargos = m.badges.length ? m.badges.join(', ') : '—';
-  return '  ' + m.nick.padEnd(18) + m.group.padEnd(8) + cargos;
+  return '  ' + m.nick.padEnd(18) + cargos;
 }
 
 /* ---- comandos ----
@@ -2985,51 +3167,71 @@ const COMANDOS = [
       termDim('  /gift add Fulano caveira        dá a capa; se ele nunca entrou,');
       termDim('                                  fica guardado até entrar');
       termDim('  /gift remove Fulano pro');
-      termDim('  /account group Fulano dev');
+      termDim('  /gift add Fulano dev            dá o cargo, e com ele o poder');
+      termDim('  /cargo create vip VIP mustard title gift');
+      termDim('                                  cria o cargo e o que ele libera');
       termDim('  /title Fulano &e&lANÚNCIO! | &aVocê recebeu um vip!!');
       termDim('');
       termDim('cores: &0-&9 &a-&f · &l negrito &o itálico &n sublinhado &m riscado &r reseta');
       termDim('');
       termDim(listaDeItens());
-      termDim('grupos válidos: player, dev');
+      termDim('cargo é etiqueta E permissão: /cargo list · /perms list · /color help');
     }
   },
   {
-    nome: 'gift', uso: '/gift add|remove <nick> <item>', ajuda: 'dá ou tira cargo e capa',
+    nome: 'gift', uso: '/gift add|remove <nick[, nick...]> <item>',
+    ajuda: 'dá ou tira cargo e capa',
     roda: async (a) => {
       const acao = String(a[0] || '').toLowerCase();
       if (acao !== 'add' && acao !== 'remove') {
         return termErro('uso: /gift add <nick> <item>   ou   /gift remove <nick> <item>');
       }
-      if (a.length < 3) return termErro('uso: /gift ' + acao + ' <nick> <item>');
 
-      const alvo = a[1];
-      const item = a[2].toLowerCase();
+      const { nicks, resto } = lerNicks(a.slice(1));
+      const item = String(resto[0] || '').toLowerCase();
+      if (!nicks.length || !item) {
+        termErro('uso: /gift ' + acao + ' <nick> <item>');
+        return termDim('vários de uma vez: /gift add Ny3san, Alaninha, _xvu caveira');
+      }
       if (!ehItemValido(item)) return termErro('"' + item + '" não existe. ' + listaDeItens());
 
       const token = await tokenAtual();
-      if (token && window.api.xyven) {
-        const r = await window.api.xyven.gift(token, alvo, item, acao === 'add' ? 'dar' : 'tirar')
-          .catch(() => null);
 
-        if (r && r.ok) {
+      /* ---- com conta original: vale pra todo mundo ---- */
+      if (token && window.api.xyven) {
+        let feitos = 0;
+        let mexeuEmMim = false;
+
+        /* um de cada vez, de proposito: em paralelo o servidor leria e
+           gravaria a mesma lista de cargos ao mesmo tempo quando dois
+           alvos fossem a mesma linha, e uma das escritas se perderia */
+        for (const alvo of nicks) {
+          const r = await window.api.xyven.gift(token, alvo, item, acao === 'add' ? 'dar' : 'tirar')
+            .catch(() => null);
+
+          if (!r || !r.ok) {
+            termErro(alvo + ': ' + ((r && r.erro) || 'não consegui falar com a API.'));
+            if (r && r.fora) break;   /* API fora: nao adianta insistir nos outros */
+            continue;
+          }
+
           const d = r.dados;
+          feitos++;
           if (d.pendente) {
             termOk(acao === 'add'
-              ? item + ' guardado para ' + d.nick + '.'
+              ? item + ' guardado para ' + d.nick + ' (ainda não entrou).'
               : item + ' tirado da espera de ' + d.nick + '.');
-            if (acao === 'add') termDim('ninguém entrou com esse nick ainda — ele recebe ao entrar.');
           } else if (acao === 'add') {
             termOk(d.nick + (d.jaTinha ? ' já tinha ' : ' recebeu ') + item + '.');
-            termDim('vale em qualquer PC — o launcher dele pega no próximo boot.');
           } else {
             termOk(item + (d.naoTinha ? ' já não estava em ' : ' saiu de ') + d.nick + '.');
           }
-          if (String(d.nick).toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
-          return;
+          if (String(d.nick).toLowerCase() === String(state.account).toLowerCase()) mexeuEmMim = true;
         }
-        if (r && r.fora) termErro('a API não respondeu: ' + r.erro);
-        else termErro((r && r.erro) || 'não consegui falar com a API.');
+
+        if (nicks.length > 1) termDim(feitos + ' de ' + nicks.length + ' contas.');
+        if (feitos) termDim('vale em qualquer PC — quem estiver com o launcher aberto vê na hora.');
+        if (mexeuEmMim) sincronizarConta();
         return;
       }
 
@@ -3037,29 +3239,32 @@ const COMANDOS = [
       if (idsDeCapa().includes(item)) {
         return termErro('capa só com conta original logada — ela mora no servidor.');
       }
-      const m = dadosDev.achar(alvo);
-      if (!m) return termErro('não conheço "' + alvo + '" e não há sessão pra consultar o servidor.');
-
-      if (acao === 'add') {
-        if (m.badges.includes(item)) return termDim(m.nick + ' já tem ' + item + '.');
-        m.badges.push(item);
-      } else {
-        if (!m.badges.includes(item)) return termDim(m.nick + ' não tem ' + item + '.');
-        m.badges = m.badges.filter((x) => x !== item);
+      for (const alvo of nicks) {
+        const m = dadosDev.achar(alvo);
+        if (!m) { termErro('não conheço "' + alvo + '" e não há sessão pra consultar o servidor.'); continue; }
+        if (acao === 'add') {
+          if (m.badges.includes(item)) { termDim(m.nick + ' já tem ' + item + '.'); continue; }
+          m.badges.push(item);
+        } else {
+          if (!m.badges.includes(item)) { termDim(m.nick + ' não tem ' + item + '.'); continue; }
+          m.badges = m.badges.filter((x) => x !== item);
+        }
+        termOk(m.nick + (acao === 'add' ? ' recebeu ' : ' perdeu ') + item + '.');
       }
       dadosDev.gravar();
-      termOk(m.nick + (acao === 'add' ? ' recebeu ' : ' perdeu ') + item + '.');
       termDim('sem conta original logada: isto valeu só nesta máquina.');
     }
   },
   {
-    nome: 'title', uso: '/title <nick> <título> | <descrição>', ajuda: 'recado pra uma pessoa',
+    nome: 'title', uso: '/title <nick[, nick...]> <título> | <descrição>',
+    ajuda: 'recado pra uma ou várias pessoas',
     roda: async (a) => {
-      const alvo = a[0] || '';
-      const tudo = a.slice(1).join(' ');
-      if (!alvo || !tudo.trim()) {
+      const { nicks, resto } = lerNicks(a);
+      const tudo = resto.join(' ');
+      if (!nicks.length || !tudo.trim()) {
         termErro('uso: /title <nick> <título> | <descrição>');
-        return termDim('exemplo: /title Fulano &e&lANÚNCIO! | &aVocê recebeu um vip!!');
+        termDim('exemplo: /title Fulano &e&lANÚNCIO! | &aVocê recebeu um vip!!');
+        return termDim('vários: /title Ny3san, Alaninha &e&lANÚNCIO! | &aleiam isso');
       }
       /* o | separa porque os dois lados tem espaco; sem ele, nao
          haveria como saber onde o titulo acaba */
@@ -3072,17 +3277,29 @@ const COMANDOS = [
       if (!token || !window.api.xyven) {
         return termErro('precisa de conta original logada — o recado vai pro servidor.');
       }
-      const r = await window.api.xyven.title(token, alvo, titulo, texto).catch(() => null);
-      if (r && r.ok) {
-        termOk('recado enviado pra ' + r.dados.nick + ' (#' + r.dados.aviso.id + ').');
-        termDim('ela vê ao abrir o launcher. se nunca entrou, fica esperando.');
-        /* mandou pra si mesmo: busca agora em vez de esperar o boot */
-        if (String(r.dados.nick).toLowerCase() === String(state.account).toLowerCase()) {
-          sincronizarConta();
+      let feitos = 0;
+      let mexeuEmMim = false;
+
+      /* um de cada vez, como no /gift: cada recado e uma linha nova e o
+         servidor carimba a campainha do alvo depois de gravar */
+      for (const alvo of nicks) {
+        const r = await window.api.xyven.title(token, alvo, titulo, texto).catch(() => null);
+        if (!r || !r.ok) {
+          termErro(alvo + ': ' + ((r && r.erro) || 'não consegui falar com a API.'));
+          if (r && r.fora) break;
+          continue;
         }
-        return;
+        feitos++;
+        termOk('recado enviado pra ' + r.dados.nick + ' (#' + r.dados.aviso.id + ').');
+        if (String(r.dados.nick).toLowerCase() === String(state.account).toLowerCase()) {
+          mexeuEmMim = true;
+        }
       }
-      termErro((r && r.erro) || 'não consegui falar com a API.');
+
+      if (nicks.length > 1) termDim(feitos + ' de ' + nicks.length + ' contas.');
+      if (feitos) termDim('quem estiver com o launcher aberto vê na hora; quem nunca entrou, ao entrar.');
+      /* mandou pra si mesmo: busca agora em vez de esperar o boot */
+      if (mexeuEmMim) sincronizarConta();
     }
   },
   {
@@ -3124,31 +3341,21 @@ const COMANDOS = [
         const m = dadosDev.achar(arg[0]);
         if (!m) return termErro('não conheço "' + arg[0] + '".');
         termOk('nick   ' + m.nick);
-        termOk('grupo  ' + m.group);
         return termOk('cargos ' + (m.badges.join(', ') || '—'));
       }
 
       if (sub === 'group') {
-        if (arg.length < 2) return termErro('uso: /account group <nick> <player|dev>');
-        const grupo = arg[1].toLowerCase();
-        if (grupo !== 'player' && grupo !== 'dev') return termErro('grupo é player ou dev.');
+        /* Grupo nao existe mais.
 
-        const token = await tokenAtual();
-        if (token && window.api.xyven) {
-          const r = await window.api.xyven.grupo(token, arg[0], grupo).catch(() => null);
-          if (r && r.ok) {
-            termOk(r.dados.nick + ' agora é ' + r.dados.grupo + '.');
-            if (String(r.dados.nick).toLowerCase() === String(state.account).toLowerCase()) sincronizarConta();
-            return;
-          }
-          return termErro((r && r.erro) || 'não consegui falar com a API.');
-        }
-        const m = dadosDev.achar(arg[0]);
-        if (!m) return termErro('não conheço "' + arg[0] + '".');
-        m.group = grupo;
-        dadosDev.gravar();
-        termOk(m.nick + ' agora é ' + grupo + '.');
-        return termDim('sem conta original logada: isto valeu só nesta máquina.');
+           Antes havia dois conceitos: `grupo` (player/dev) mandava no
+           que a pessoa podia, e `cargos` era so etiqueta. Ninguem
+           entendia por que ter a tag DEV nao dava acesso a nada. Agora
+           e um so — dar o cargo E dar o poder. */
+        termErro('grupo não existe mais: quem manda é o cargo.');
+        termDim('pra dar poder a alguém, dê um cargo que carregue a permissão:');
+        termDim('  /gift add ' + (arg[0] || '<nick>') + ' dev        dá tudo');
+        termDim('  /cargo list                      vê o que cada cargo carrega');
+        return;
       }
 
       if (sub === 'remove') {
@@ -3183,10 +3390,128 @@ const COMANDOS = [
     }
   },
   {
-    nome: 'cargos', uso: '/cargos', ajuda: 'lista os cargos e capas que existem',
-    roda: () => {
-      ALL_BADGES.forEach((b) => termOk('  cargo  ' + b.id.padEnd(12) + b.label));
-      CAPAS_XYVEN.forEach((c) => termOk('  capa   ' + c.id.padEnd(12) + c.name));
+    nome: 'cargo', uso: '/cargo <sub>', ajuda: 'list · info · create · edit · delete',
+    roda: async (a) => {
+      const sub = String(a[0] || '').toLowerCase();
+      const arg = a.slice(1);
+
+      if (!sub || sub === 'list') {
+        ALL_BADGES.forEach((b) => {
+          const perms = (b.permissoes || []).join(', ') || '—';
+          termOk('  ' + b.id.padEnd(12) + String(b.label).padEnd(14) +
+                 String(b.cor || 'sand').padEnd(9) + perms);
+        });
+        termDim(ALL_BADGES.length + ' cargos   (id · nome · cor · permissões)');
+        termDim('capas: ' + idsDeCapa().join(', ') + '  — capa não é cargo, vem no launcher');
+        return;
+      }
+
+      if (sub === 'info') {
+        if (!arg[0]) return termErro('uso: /cargo info <id>');
+        const b = ALL_BADGES.find((x) => x.id === String(arg[0]).toLowerCase());
+        if (!b) return termErro('não existe cargo "' + arg[0] + '".');
+        termOk('id     ' + b.id);
+        termOk('nome   ' + b.label);
+        termOk('cor    ' + (b.cor || 'sand'));
+        termOk('perms  ' + ((b.permissoes || []).join(', ') || '—'));
+        const donos = dadosDev.listar().filter((m) => m.badges.includes(b.id));
+        return termDim(donos.length ? 'quem tem: ' + donos.map((m) => m.nick).join(', ')
+                                    : 'ninguém tem este cargo neste launcher.');
+      }
+
+      if (sub === 'create' || sub === 'edit') {
+        if (!arg[0]) return termErro('uso: /cargo ' + sub + ' <id> <nome> <cor> [permissões...]');
+        const id = String(arg[0]).toLowerCase();
+
+        /* nome, cor e permissoes sao opcionais no edit: mandar so o que
+           muda evita apagar sem querer o que nao foi citado */
+        const resto = arg.slice(1);
+        const cor = resto.find((x) => CORES_VALIDAS.includes(String(x).toLowerCase()));
+        const perms = resto.filter((x) => String(x).includes('.') || x === '*' ||
+                                          PERMISSOES.some((pp) => pp[0] === x));
+        const nome = resto.find((x) => x !== cor && !perms.includes(x));
+
+        const ruim = perms.find((x) => !PERMISSOES.some((pp) => pp[0] === x));
+        if (ruim) return termErro('permissão "' + ruim + '" não existe. veja /perms list.');
+
+        const corpo = { acao: sub === 'create' ? 'criar' : 'editar', id };
+        if (nome !== undefined) corpo.nome = nome;
+        if (cor !== undefined) corpo.cor = cor;
+        if (perms.length || sub === 'create') corpo.permissoes = perms;
+
+        const token = await tokenAtual();
+        if (!token || !window.api.xyven) {
+          return termErro('precisa de conta original logada — cargo mora no servidor.');
+        }
+        const r = await window.api.xyven.cargo(token, corpo).catch(() => null);
+        if (!r || !r.ok) return termErro((r && r.erro) || 'não consegui falar com a API.');
+
+        const c = r.dados.cargo;
+        termOk(c.nome + ' (' + c.id + ') ' + (sub === 'create' ? 'criado' : 'atualizado') + '.');
+        termDim('cor ' + c.cor + ' · permissões: ' + ((c.permissoes || []).join(', ') || 'nenhuma'));
+        await carregarCargos();
+        sincronizarConta();
+        return;
+      }
+
+      if (sub === 'delete') {
+        if (!arg[0]) return termErro('uso: /cargo delete <id>');
+        const id = String(arg[0]).toLowerCase();
+        if (!confirm('apagar o cargo "' + id + '"? quem tem perde na hora.')) return;
+
+        const token = await tokenAtual();
+        if (!token || !window.api.xyven) {
+          return termErro('precisa de conta original logada — cargo mora no servidor.');
+        }
+        const r = await window.api.xyven.cargo(token, { acao: 'apagar', id }).catch(() => null);
+        if (!r || !r.ok) return termErro((r && r.erro) || 'não consegui falar com a API.');
+
+        termOk('cargo ' + id + ' apagado.');
+        if (r.dados.tirados) termDim('tirado de ' + r.dados.tirados + ' conta(s).');
+        await carregarCargos();
+        sincronizarConta();
+        return;
+      }
+
+      termErro('subcomando desconhecido.');
+      termDim('use: /cargo list | info <id> | create <id> <nome> <cor> [perms] | edit | delete');
+      termDim('cores: ' + CORES_VALIDAS.join(', ') + '   (/color help mostra cada uma)');
+    }
+  },
+  {
+    nome: 'color', uso: '/color help', ajuda: 'mostra as cores de cargo',
+    roda: (a) => {
+      const sub = String(a[0] || 'help').toLowerCase();
+      if (sub !== 'help' && sub !== 'list') return termErro('uso: /color help');
+
+      /* Onde cada uma ja e usada no tema. Serve de referencia: escolher
+         `salmon` pra um cargo qualquer faz ele competir com o TOCAR. */
+      const ONDE = {
+        teal:    'barras e toggle ligado',
+        salmon:  'TOCAR e item ativo do rail',
+        mustard: 'hover e selecionado',
+        sand:    'rail e sidebar',
+        ink:     'contorno e texto',
+        red:     'destrutivo (remover conta)',
+        muted:   'texto secundário',
+        paper:   'fundo de card'
+      };
+      CORES_VALIDAS.forEach((c) => termCor(c, c.padEnd(9) + (ONDE[c] || '')));
+      termDim('');
+      termDim('são as do tema, e mudam junto no modo escuro — por isso não há hex.');
+      termDim('cor nova exige token novo no tema; isso é decisão de quem faz o design.');
+      termDim('uso: /cargo create vip VIP mustard title');
+    }
+  },
+  {
+    nome: 'perms', uso: '/perms list', ajuda: 'lista as permissões que existem',
+    roda: (a) => {
+      const sub = String(a[0] || 'list').toLowerCase();
+      if (sub !== 'list') return termErro('uso: /perms list');
+      PERMISSOES.forEach(([id, oque]) => termOk('  ' + id.padEnd(16) + oque));
+      termDim('');
+      termDim('as suas: ' + (permissoesAtuais.join(', ') || 'nenhuma'));
+      termDim('permissão vive no cargo: /cargo create vip VIP mustard title gift');
     }
   },
   {
@@ -3405,3 +3730,10 @@ if (temApi() && window.api.xyven && window.api.xyven.aoMudar) {
     sincronizarConta();
   });
 }
+
+/* Aqui embaixo pelo mesmo motivo de sincronizarConta: carregarCargos
+   mexe em ALL_BADGES e CORES_CARGO, declarados la pelo meio do
+   arquivo. Chamada no boot do forum, caia no TDZ — e como e async, o
+   erro virava promessa rejeitada: o app abria com "Cannot access 'Ns'
+   before initialization" e nada dizia de onde vinha. */
+carregarCargos();

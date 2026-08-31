@@ -212,3 +212,64 @@ end $$;
 -- lenta pra mostrar algo que a tela nem sempre usa.
 -- ------------------------------------------------------------
 alter table postagens add column if not exists imagem text;
+
+-- ============================================================
+-- cargos  (rode este bloco no SQL Editor)
+--
+-- Cargo passou a ser a UNICA coisa que existe: ele e a etiqueta que
+-- aparece no perfil E o pacote de permissoes. Antes eram dois
+-- conceitos separados — `grupo` (player/dev) mandava no que a pessoa
+-- podia fazer, e `cargos` era so enfeite. Ninguem entendia por que
+-- ter a tag DEV nao dava acesso a nada.
+--
+-- `jogadores.cargos` continua sendo a lista de ids que a pessoa tem.
+-- `jogadores.grupo` fica so como ponte pra nao trancar ninguem de
+-- fora enquanto os cargos nao estao montados (ver exigirPerm).
+-- ============================================================
+create table if not exists cargos (
+  id          text primary key,               -- slug minusculo, sem espaco
+  nome        text not null,                  -- como aparece na etiqueta
+  cor         text not null default 'sand',   -- token do tema, nunca hex
+  permissoes  text[] not null default '{}',
+  por_uuid    text,
+  criado_em   timestamptz not null default now(),
+  -- so cores que existem no tema: hex solto aqui vazaria pro CSS e
+  -- quebraria o modo escuro, que troca os tokens
+  constraint cor_valida check (cor in ('teal', 'salmon', 'mustard', 'sand', 'ink'))
+);
+
+alter table cargos enable row level security;
+
+-- leitura publica: o launcher precisa saber o nome e a cor de cada
+-- cargo pra desenhar a etiqueta de qualquer jogador
+drop policy if exists cargos_leitura on cargos;
+create policy cargos_leitura on cargos
+  for select using (true);
+
+-- sem politica de escrita: passa pela Edge Function `cargo`
+
+-- os cinco que ja existiam no launcher, com as mesmas cores de sempre
+insert into cargos (id, nome, cor, permissoes) values
+  ('dev',      'DEV',      'teal',    '{*}'),
+  ('fundador', 'FUNDADOR', 'salmon',  '{}'),
+  ('pro',      'PRO',      'mustard', '{}'),
+  ('beta',     'BETA',     'sand',    '{}'),
+  ('campeao',  'CAMPEÃO',  'ink',     '{}')
+on conflict (id) do nothing;
+
+do $$
+begin
+  alter publication supabase_realtime add table cargos;
+exception when duplicate_object then null;
+end $$;
+
+-- ------------------------------------------------------------
+-- cargos.cor: mais tres  (rode este bloco tambem)
+--
+-- `red`, `muted` e `paper` ja existiam no tema e nenhum cargo usava.
+-- Continua sem hex de proposito: o modo escuro troca os tokens, e cor
+-- fixa aqui ficaria ilegivel quando o tema virasse.
+-- ------------------------------------------------------------
+alter table cargos drop constraint if exists cor_valida;
+alter table cargos add constraint cor_valida
+  check (cor in ('teal', 'salmon', 'mustard', 'sand', 'ink', 'red', 'muted', 'paper'));

@@ -166,7 +166,7 @@
       <div class="wrap" id="screen-news" hidden>
         <div class="section__head">
           <h2>Novidades</h2>
-          <button class="btn btn--teal dev-only" id="newPostBtn">+ NOVA POSTAGEM</button>
+          <button class="btn btn--teal perm perm--escrever" id="newPostBtn">+ NOVA POSTAGEM</button>
         </div>
 
         <div class="filters" id="postFilters"></div>
@@ -422,9 +422,12 @@
 <!-- ============ MODAL: MENU DEV ============ -->
 <div class="overlay" id="avisoOverlay" hidden>
   <div class="modal" role="dialog" aria-modal="true" style="max-width:520px">
-    <div class="modal__head modal__head--mustard"><h3 id="avisoTitulo">—</h3></div>
-    <div class="aviso__corpo" id="avisoTexto"></div>
-    <div class="form__foot" style="justify-content:flex-end">
+    <div class="modal__head modal__head--mustard"><h3>Recado</h3></div>
+    <div class="aviso__corpo">
+      <div class="aviso__titulo" id="avisoTitulo"></div>
+      <div class="aviso__texto" id="avisoTexto"></div>
+    </div>
+    <div class="form__foot aviso__foot" style="justify-content:flex-end">
       <button class="btn btn--teal" id="avisoFechar">FECHAR</button>
     </div>
   </div>
@@ -499,7 +502,7 @@
       <img class="postimg postimg--foto" id="readImg" hidden alt="">
     </div>
     <div class="form__foot" style="padding-top:16px;border-top:var(--bw) solid var(--ink)">
-      <button class="btn dev-only" id="readEdit">EDITAR</button>
+      <button class="btn perm perm--escrever" id="readEdit">EDITAR</button>
       <button class="btn btn--teal" data-close>FECHAR</button>
     </div>
   </div>

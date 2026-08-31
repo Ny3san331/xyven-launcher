@@ -99,5 +99,17 @@ export const listarPosts = () =>
 export const post = (token: string, corpo: Record<string, unknown>) =>
   chamar<{ post?: Post; id?: number }>('posts', token, corpo);
 
+export type Cargo = {
+  id: string; nome: string; cor: string; permissoes: string[]; criado_em: string;
+};
+
+/* Leitura publica: o launcher precisa do nome e da cor de todo cargo
+   pra desenhar a etiqueta de qualquer jogador, inclusive sem login. */
+export const listarCargos = () =>
+  chamar<{ cargos: Cargo[] }>('cargo', 'sem-token', { acao: 'listar' });
+
+export const cargo = (token: string, corpo: Record<string, unknown>) =>
+  chamar<{ cargo?: Cargo; id?: string; tirados?: number }>('cargo', token, corpo);
+
 export const grupo = (token: string, alvo: string, grupo: string) =>
   chamar<{ nick: string; grupo: string }>('grupo', token, { alvo, grupo });

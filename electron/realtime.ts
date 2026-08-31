@@ -17,6 +17,31 @@
    de service_role aqui — essa nunca sai do servidor.
    ============================================================ */
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
+/* O processo principal do Electron 28 roda Node 18.18, que NAO tem
+   WebSocket global — so chegou no Node 22. O supabase-js procura o
+   global, nao acha e LANCA. O erro morria dentro do ipcMain.handle e
+   o renderer engolia no .catch(), entao o tempo real simplesmente
+   nao existia e nada aparecia em lugar nenhum.
+
+   Testar com `node` nao pegava isso: o Node novo tem o global. */
+import { createRequire } from 'module';
+
+/* Carregado com createRequire, e nao com import.
+
+   O processo principal do Electron 28 roda Node 18.18, que nao tem
+   WebSocket global — so chegou no Node 22. Sem isso o supabase-js
+   lanca e o tempo real nunca sobe.
+
+   Mas `import * as WS from 'ws'` tambem nao serve: o helper de
+   interop do Vite percorre `for..in` (que anda pelo prototipo) e
+   pergunta getOwnPropertyDescriptor (que so ve propriedade propria).
+   Como a classe do ws herda estaticos do EventEmitter, o descritor
+   vem undefined e o app morria antes de abrir, com "Cannot read
+   properties of undefined (reading 'get')".
+
+   createRequire nao gera helper nenhum: e o require do Node, cru. */
+const exigir = createRequire(__filename);
+const WebSocketNode: any = exigir('ws');
 
 const URL = 'https://oxuseyipoicgwolbjyzt.supabase.co';
 
@@ -36,7 +61,10 @@ function conectar(): SupabaseClient {
   if (!cliente) {
     cliente = createClient(URL, ANON, {
       auth: { persistSession: false, autoRefreshToken: false },
-      realtime: { params: { eventsPerSecond: 2 } }
+      realtime: {
+        params: { eventsPerSecond: 2 },
+        transport: WebSocketNode
+      }
     });
   }
   return cliente;
@@ -54,7 +82,17 @@ export function seguir(nick: string, aoMudar: () => void) {
   parar();
   escutando = alvo;
 
-  const sb = conectar();
+  let sb: SupabaseClient;
+  try {
+    sb = conectar();
+  } catch (e: any) {
+    /* Falar alto: a versao anterior falhava aqui em silencio e o
+       sintoma era "o tempo real nao funciona", sem nenhuma pista. */
+    console.error('[xyven] realtime nao subiu:', e?.message || e);
+    escutando = '';
+    return;
+  }
+
   canal = sb
     .channel('conta:' + alvo)
     .on(
@@ -73,7 +111,15 @@ export function seguir(nick: string, aoMudar: () => void) {
         if (quem === escutando) aoMudar();
       }
     )
-    .subscribe();
+    /* Logar o status era o que faltava pra enxergar. Sem isto a falha
+       era invisivel: o canal ficava em CHANNEL_ERROR e a tela so
+       parecia "nao atualizar sozinha", sem nenhuma pista de onde
+       olhar. SUBSCRIBED = vivo; CLOSED e CHANNEL_ERROR = nao chega
+       nada. */
+    .subscribe((estado, erro) => {
+      console.log('[realtime] conta ' + alvo + ': ' + estado +
+        (erro ? ' — ' + (erro.message || erro) : ''));
+    });
 }
 
 /* ------------------------------------------------------------
@@ -91,7 +137,13 @@ let canalPosts: RealtimeChannel | null = null;
 
 export function seguirPosts(aoMudar: () => void) {
   if (!ANON || canalPosts) return;
-  const sb = conectar();
+  let sb: SupabaseClient;
+  try {
+    sb = conectar();
+  } catch (e: any) {
+    console.error('[realtime] mural nao subiu:', e?.message || e);
+    return;
+  }
   canalPosts = sb
     .channel('postagens')
     .on(
@@ -101,7 +153,16 @@ export function seguirPosts(aoMudar: () => void) {
       { event: '*', schema: 'public', table: 'postagens' },
       () => aoMudar()
     )
-    .subscribe();
+    /* cargo criado, editado ou apagado muda a etiqueta de todo mundo */
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'cargos' },
+      () => aoMudar()
+    )
+    .subscribe((estado, erro) => {
+      console.log('[realtime] mural: ' + estado +
+        (erro ? ' — ' + (erro.message || erro) : ''));
+    });
 }
 
 export function parar() {

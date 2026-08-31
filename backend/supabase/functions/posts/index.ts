@@ -13,8 +13,9 @@
    launcher tambem so aparece pra dev, mas isso e enfeite: quem
    editar o renderer faz o botao voltar. A trava que vale e esta. */
 import {
-  admin, erro, exigirDev, json, quemEh
+  admin, erro, json, quemEh
 } from '../_shared/comum.ts';
+import { exigirPerm } from '../_shared/perms.ts';
 
 const TAGS = ['ATUALIZAÇÃO', 'COMUNIDADE', 'EVENTO', 'CORREÇÃO'];
 const LIMITE_TITULO = 120;
@@ -50,10 +51,25 @@ Deno.serve(async (req) => {
     return json({ ok: true, posts: data || [] });
   }
 
-  /* ---- daqui pra baixo, so dev ---- */
+  /* ---- daqui pra baixo, cada acao pede a sua permissao ----
+
+     Tres e nao uma: da pra ter alguem que escreve no mural sem poder
+     apagar o que os outros escreveram. Apagar e o unico sem volta. */
   const quem = await quemEh(req);
   if (quem instanceof Response) return quem;
-  const barrado = await exigirDev(sb, quem);
+
+  const NECESSARIA: Record<string, string> = {
+    criar: 'posts.escrever',
+    editar: 'posts.escrever',
+    imagem: 'posts.escrever',
+    fixar: 'posts.fixar',
+    destaque: 'posts.fixar',
+    apagar: 'posts.apagar'
+  };
+  const precisa = NECESSARIA[acao];
+  if (!precisa) return erro('ação desconhecida: ' + acao);
+
+  const barrado = await exigirPerm(sb, quem, precisa);
   if (barrado) return barrado;
 
   if (acao === 'criar' || acao === 'editar') {

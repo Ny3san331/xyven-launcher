@@ -13,13 +13,23 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 const MC_PERFIL = 'https://api.minecraftservices.com/minecraft/profile';
 
-/* Ids que existem no launcher. Qualquer coisa fora daqui é recusada:
-   sem isso, um erro de digitação vira um cargo fantasma que não
-   aparece em lugar nenhum e ninguém entende por quê. */
-export const CARGOS = ['dev', 'fundador', 'pro', 'beta', 'campeao'];
+/* Capas sao fixas: cada uma precisa do .png dentro do launcher, entao
+   nao adianta criar pelo terminal. Qualquer id fora daqui e recusado —
+   sem isso um erro de digitacao vira capa fantasma que ninguem ve.
+
+   Cargos NAO estao aqui: viraram linha na tabela `cargos`, criados
+   pelo /cargo create. Ver tipoDoItem. */
 export const CAPAS = ['caveira', 'moonlight', 'broken', 'enderman'];
 
 export type Identidade = { uuid: string; nick: string };
+
+/* Quanto tempo o `visto_em` pode ficar velho antes de valer a escrita.
+   Ele serve pra saber quem anda usando o launcher; precisao de minuto
+   nao muda nada, e escrever a toa custa caro: ver garantirJogador.
+
+   Declarado aqui em cima, longe de quem usa, porque neste projeto
+   const usado antes da declaracao ja derrubou arquivo tres vezes. */
+const VISTO_FRESCO_MS = 10 * 60 * 1000;
 
 /* ------------------------------------------------------------
    cliente com service_role: ignora RLS, só existe aqui dentro
@@ -125,8 +135,17 @@ export const comItem = (lista: string[] | null, item: string) =>
 export const semItem = (lista: string[] | null, item: string) =>
   (lista || []).filter((x) => x !== item);
 
-export const tipoDoItem = (item: string): 'cargo' | 'capa' | null =>
-  CARGOS.includes(item) ? 'cargo' : (CAPAS.includes(item) ? 'capa' : null);
+/* Cargo agora e linha de tabela, nao constante: um cargo criado pelo
+   /cargo create tem que valer no /gift no mesmo instante. Capa segue
+   fixa porque cada uma precisa do arquivo .png dentro do launcher. */
+export async function tipoDoItem(
+  sb: ReturnType<typeof admin>,
+  item: string
+): Promise<'cargo' | 'capa' | null> {
+  if (CAPAS.includes(item)) return 'capa';
+  const { data } = await sb.from('cargos').select('id').eq('id', item).maybeSingle();
+  return data ? 'cargo' : null;
+}
 
 /* Conta offline entra na tabela com uuid sintetico. Serve pra ela
    aparecer na lista e guardar cosmetico; nao vale como identidade. */
@@ -149,10 +168,21 @@ export async function acharJogador(sb: ReturnType<typeof admin>, nick: string) {
 /* cria (ou atualiza a data de) a linha de uma conta offline */
 export async function registrarPirata(sb: ReturnType<typeof admin>, nick: string) {
   if (!nickValido(nick)) return null;
+  const uuid = UUID_PIRATA(nick);
+
+  /* mesma trava do garantirJogador: reescrever `visto_em` a cada
+     consulta fazia a conta offline entrar no mesmo laco */
+  const { data: atual } = await sb
+    .from('jogadores').select('*').eq('uuid', uuid).maybeSingle();
+  if (atual && atual.visto_em
+      && (Date.now() - new Date(atual.visto_em).getTime()) <= VISTO_FRESCO_MS) {
+    return atual;
+  }
+
   const { data, error } = await sb
     .from('jogadores')
     .upsert(
-      { uuid: UUID_PIRATA(nick), nick: String(nick).trim(), grupo: 'player',
+      { uuid, nick: String(nick).trim(), grupo: 'player',
         visto_em: new Date().toISOString() },
       { onConflict: 'uuid' }
     )
@@ -272,17 +302,40 @@ export async function reclamarPendentes(
    garante a linha do jogador e devolve o estado atual
    ------------------------------------------------------------ */
 export async function garantirJogador(sb: ReturnType<typeof admin>, quem: Identidade) {
-  const { data, error } = await sb
+  const { data: atual } = await sb
     .from('jogadores')
-    .upsert(
-      { uuid: quem.uuid, nick: quem.nick, visto_em: new Date().toISOString() },
-      { onConflict: 'uuid' }
-    )
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
+    .select('*')
+    .eq('uuid', quem.uuid)
+    .maybeSingle();
+
+  /* SO escreve quando ha o que mudar.
+
+     Antes o upsert reescrevia `visto_em` a cada /identificar. Como o
+     launcher escuta a propria linha pelo Realtime, o UPDATE virava
+     evento, o evento disparava outra sincronizacao, e a sincronizacao
+     chamava /identificar de novo: laco infinito, girando pra sempre e
+     queimando requisicao. Ficou visivel no log assim que passamos a
+     imprimir o status do canal. */
+  const precisa = !atual
+    || atual.nick !== quem.nick
+    || !atual.visto_em
+    || (Date.now() - new Date(atual.visto_em).getTime()) > VISTO_FRESCO_MS;
+
+  let linha = atual;
+  if (precisa) {
+    const { data, error } = await sb
+      .from('jogadores')
+      .upsert(
+        { uuid: quem.uuid, nick: quem.nick, visto_em: new Date().toISOString() },
+        { onConflict: 'uuid' }
+      )
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    linha = data;
+  }
 
   /* entrou com este nick: leva o que estava esperando por ele */
-  const comPendente = await reclamarPendentes(sb, quem.uuid, quem.nick, data);
-  return comPendente || data;
+  const comPendente = await reclamarPendentes(sb, quem.uuid, quem.nick, linha);
+  return comPendente || linha;
 }

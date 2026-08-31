@@ -6,9 +6,10 @@
    nao, fica pendente ate alguem entrar com aquele nome. Nao ha
    consulta a Mojang: o nick nao e resolvido pra UUID de estranho. */
 import {
-  acharJogador, admin, comItem, cutucar, erro, exigirDev, guardarPendente,
+  acharJogador, admin, comItem, cutucar, erro, guardarPendente,
   json, quemEh, semItem, tipoDoItem
 } from '../_shared/comum.ts';
+import { exigirPerm } from '../_shared/perms.ts';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ erro: 'use POST.' }, 405);
@@ -17,7 +18,7 @@ Deno.serve(async (req) => {
   if (quem instanceof Response) return quem;
 
   const sb = admin();
-  const barrado = await exigirDev(sb, quem);
+  const barrado = await exigirPerm(sb, quem, 'gift');
   if (barrado) return barrado;
 
   const corpo = await req.json().catch(() => null);
@@ -26,7 +27,7 @@ Deno.serve(async (req) => {
   const acao = String(corpo?.acao || 'dar').toLowerCase() === 'tirar' ? 'tirar' : 'dar';
   if (!nick || !item) return erro('mande alvo e item.');
 
-  const tipo = tipoDoItem(item);
+  const tipo = await tipoDoItem(sb, item);
   if (!tipo) return erro('"' + item + '" não é cargo nem capa que existe.');
 
   const coluna = tipo === 'cargo' ? 'cargos' : 'capas';

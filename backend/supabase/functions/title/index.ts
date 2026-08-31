@@ -9,8 +9,9 @@
    mesmo texto volta a aparecer — que e o esperado quando alguem
    republica um aviso de proposito. */
 import {
-  admin, chaveNick, cutucar, erro, exigirDev, json, nickValido, quemEh
+  admin, chaveNick, cutucar, erro, json, nickValido, quemEh
 } from '../_shared/comum.ts';
+import { exigirPerm } from '../_shared/perms.ts';
 
 const LIMITE_TITULO = 60;
 const LIMITE_TEXTO = 400;
@@ -22,7 +23,7 @@ Deno.serve(async (req) => {
   if (quem instanceof Response) return quem;
 
   const sb = admin();
-  const barrado = await exigirDev(sb, quem);
+  const barrado = await exigirPerm(sb, quem, 'title');
   if (barrado) return barrado;
 
   const corpo = await req.json().catch(() => null);

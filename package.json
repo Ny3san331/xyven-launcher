@@ -1,6 +1,6 @@
 {
   "name": "xyven-launcher",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Xyven Launcher",
   "main": ".vite/build/main.js",
   "scripts": {
@@ -19,6 +19,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/node": "^20.10.6",
+    "@types/ws": "^8.18.1",
     "electron": "^28.0.0",
     "electron-builder": "^26.15.3",
     "eslint": "^8.56.0",
@@ -28,6 +29,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
-    "skinview3d": "^3.4.2"
+    "skinview3d": "^3.4.2",
+    "ws": "^8.21.3"
   }
 }

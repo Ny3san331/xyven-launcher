@@ -14,6 +14,7 @@ import {
   acharJogador, admin, chaveNick, erro, json,
   lerPendente, nickValido, registrarPirata, ultimoAviso
 } from '../_shared/comum.ts';
+import { permissoesDeCargos } from '../_shared/perms.ts';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ erro: 'use POST.' }, 405);
@@ -50,6 +51,7 @@ Deno.serve(async (req) => {
     cargos,
     capas,
     pendente: !!pendente,
+    permissoes: await permissoesDeCargos(sb, cargos),
     aviso: await ultimoAviso(sb, nick)
   });
 });
