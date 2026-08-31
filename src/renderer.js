@@ -2650,6 +2650,52 @@ function aplicarConta(c) {
 }
 
 
+/* Avisa o que MUDOU desde a ultima vez.
+
+   Sem isto a pessoa so descobria um cargo novo se reparasse sozinha no
+   perfil — e como a sincronizacao so acontece ao abrir o launcher, o
+   item podia estar la ha dias sem ninguem notar.
+
+   Compara com o cache, entao a PRIMEIRA sincronizacao de uma conta nao
+   avisa nada: tudo seria "novo" e o sino viraria uma enxurrada. */
+function avisarNovidades(antes, depois) {
+  if (!antes || !depois) return;
+
+  const nomeDoItem = (id) => {
+    const b = ALL_BADGES.find((x) => x.id === id);
+    if (b) return { rotulo: b.label, tipo: 'cargo', badge: id };
+    const c = CAPAS_XYVEN.find((x) => x.id === id);
+    if (c) return { rotulo: c.name, tipo: 'capa', badge: null };
+    return { rotulo: String(id).toUpperCase(), tipo: 'item', badge: null };
+  };
+
+  const so = (a, b) => (b || []).filter((x) => !(a || []).includes(x));
+  const ganhou = so(antes.cargos, depois.cargos).concat(so(antes.capas, depois.capas));
+  const perdeu = so(depois.cargos, antes.cargos).concat(so(depois.capas, antes.capas));
+
+  ganhou.forEach((id) => {
+    const i = nomeDoItem(id);
+    notifs.unshift({
+      ts: Date.now(), read: false, badge: i.badge,
+      text: '<b>' + esc(i.rotulo) + '</b><br>você recebeu ' +
+            (i.tipo === 'capa' ? 'uma capa nova' : 'um cargo novo') + ' no client.'
+    });
+  });
+
+  perdeu.forEach((id) => {
+    const i = nomeDoItem(id);
+    notifs.unshift({
+      ts: Date.now(), read: false, badge: i.badge,
+      text: '<b>' + esc(i.rotulo) + '</b><br>saiu da sua conta.'
+    });
+  });
+
+  if (ganhou.length || perdeu.length) {
+    notifs = notifs.slice(0, 30);
+    saveNotifs(); renderNotifs(); ringBell();
+  }
+}
+
 async function sincronizarConta() {
   /* Zera ANTES de perguntar. Sem isto, trocar de conta mantinha o
      contaRemota da anterior enquanto a resposta nao chegava — e se
@@ -2677,6 +2723,7 @@ async function sincronizarConta() {
     /* trocou de conta enquanto a resposta vinha: joga fora */
     if (deQuem !== state.account) return;
     if (rp && rp.ok) {
+      avisarNovidades(lerCacheConta(deQuem), rp.dados);
       /* grupo vem sempre 'player' do servidor; conta pirata nao manda em nada */
       contaRemota = rp.dados;
       gravarCacheConta(state.account, rp.dados);
@@ -2721,6 +2768,7 @@ async function sincronizarConta() {
   const r = await window.api.xyven.identificar(token).catch(() => null);
   if (deQuem !== state.account) return;
   if (r && r.ok) {
+    avisarNovidades(lerCacheConta(deQuem), r.dados);
     contaRemota = r.dados;
     gravarCacheConta(r.dados.nick, r.dados);
     aplicarConta(r.dados);
