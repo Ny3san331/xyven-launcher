@@ -244,6 +244,54 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
    6. CARDS (status + novidades)
    ============================================================ */
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+/* ---- print do hero + galeria ---- */
+.polaroid{display:block;text-align:inherit;font:inherit;color:inherit;cursor:pointer;
+  border-radius:0;transition:background-color 120ms}
+.polaroid:hover{background:var(--mustard)}
+.polaroid__img{background-size:cover;background-position:center}
+
+.overlay[data-wide="prints"] .modal{max-width:900px;width:min(900px,94vw)}
+.gal{padding:16px}
+.gal__palco{display:flex;align-items:center;gap:12px}
+.gal__img{flex:1;min-width:0;height:min(460px,56vh);border:var(--bw) solid var(--ink);
+  background:var(--sand-dark);display:grid;place-items:center;overflow:hidden;
+  position:relative;cursor:grab;touch-action:none}
+.gal__img:active{cursor:grabbing}
+/* Posicao absoluta, nao item de grid. `height:100%` num item de grid
+   centralizado nao resolve: a altura virava automatica, a imagem ficava
+   com a altura natural pra largura de 100%, e o que passava do quadro
+   era comido pelo overflow — o corte na parte de baixo.
+   Colada nos quatro lados, a caixa tem altura definida e o contain
+   finalmente tem contra o que encaixar. Mesmo padrao do .avatar img. */
+.gal__img img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  display:block;transform-origin:center center;-webkit-user-drag:none;user-select:none}
+.gal__aviso{font-size:11px;letter-spacing:.14em;color:var(--muted)}
+.gal__seta{flex:none;width:44px;height:64px;border:var(--bw) solid var(--ink);border-radius:0;
+  background:var(--paper);color:var(--ink);font-size:26px;line-height:1;cursor:pointer;
+  box-shadow:4px 4px 0 var(--ink);transition:background-color 120ms}
+.gal__seta:hover{background:var(--mustard)}
+.gal__seta:active{box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
+.gal__seta:disabled{opacity:.35;cursor:default;box-shadow:4px 4px 0 var(--ink);transform:none}
+.gal__pe{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:12px}
+.gal__quando{font-size:12px;font-weight:700;letter-spacing:.1em}
+
+/* o terminal pede mais largura que os outros modais: linha de tabela
+   com nick, grupo e cargos nao cabe em 560px sem quebrar */
+.overlay[data-wide="term"] .modal{max-width:860px;width:min(860px,94vw)}
+
+/* ---- terminal do dev ---- */
+.term{display:flex;flex-direction:column;height:min(620px,74vh);min-height:0}
+.term__out{flex:1;overflow:auto;padding:16px 18px;background:var(--ink);color:var(--paper);
+  font-size:14px;line-height:1.85;white-space:pre-wrap;word-break:break-word}
+.term__l--eco{color:var(--mustard)}
+.term__l--erro{color:var(--salmon)}
+.term__l--dim{opacity:.6}
+.term__line{display:flex;align-items:center;gap:9px;padding:0 14px;
+  border-top:var(--bw) solid var(--ink);background:var(--paper)}
+.term__prompt{font-weight:700;font-size:13px}
+.term__line input{flex:1;border:0;background:none;outline:none;height:46px;
+  font:inherit;font-size:12px;color:var(--ink)}
+
 /* ---- servidores fixos do Início ---- */
 .servers{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
 .server{border-radius:0;padding:11px 12px;display:flex;align-items:center;gap:11px;text-align:left;

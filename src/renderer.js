@@ -445,7 +445,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $$('.overl
 /* rail */
 $('#rail').addEventListener('click', (e) => {
   const b = e.target.closest('[data-nav]'); if (!b) return;
-  if (b.dataset.nav === 'dev') { openDev(); return; }
+  if (b.dataset.nav === 'dev') { abrirTerminal(); return; }
   $$('.rail__btn').forEach(x => x.classList.remove('is-active'));
   b.classList.add('is-active');
   showScreen(b.dataset.nav);
@@ -1171,6 +1171,8 @@ async function definirPastaJogo() {
   state.dir = salva;
   $('#dirInput').value = salva;
   salvarPasta();                      /* regrava ja saneado */
+  /* agora sim da pra procurar as prints: elas moram dentro deste caminho */
+  atualizarPrints();
 }
 
 const salvarPasta = () => { try { localStorage.setItem('xyven.dir', state.dir || ''); } catch (e) { /* sem storage */ } };
@@ -2355,88 +2357,470 @@ async function gravarCosmeticos() {
 const skinEdView = makeSkinDrag('#skinEdStage', '#skinEdBody');
 
 /* ---- painéis dev… ---- */
-let devQuery = '';
+/* ============================================================
+   PRINTS DO JOGO — o polaroid do Início e a galeria
 
-function renderMembers() {
-  const q = devQuery.trim().toLowerCase();
-  const list = members.filter(m => !q || m.nick.toLowerCase().includes(q));
+   A lista traz só nome e data; a imagem de cada uma é buscada
+   quando vai aparecer na tela. Trinta prints de 1080p carregadas
+   de uma vez seriam dezenas de MB parados na memória da janela.
+   ============================================================ */
+let listaPrints = [];
+let printAtual = 0;
+const cachePrints = Object.create(null);   /* arquivo -> data URL já lida */
 
-  if (!list.length) {
-    $('#devMembers').innerHTML = '<div class="empty">nenhuma conta com esse nick.</div>';
+const dirDoJogo = () => state.dir || ($('#dirInput') ? $('#dirInput').value : '');
+
+function quandoLegivel(ms) {
+  const d = new Date(ms);
+  const dois = (n) => String(n).padStart(2, '0');
+  return dois(d.getDate()) + '/' + dois(d.getMonth() + 1) + ' — ' + dois(d.getHours()) + ':' + dois(d.getMinutes());
+}
+
+async function lerPrint(arquivo) {
+  if (cachePrints[arquivo]) return cachePrints[arquivo];
+  if (!temApi() || !window.api.prints) return null;
+  const r = await window.api.prints.ler(dirDoJogo(), arquivo).catch(() => null);
+  if (r && r.ok && r.dados) { cachePrints[arquivo] = r.dados; return r.dados; }
+  return null;
+}
+
+async function atualizarPrints() {
+  if (!temApi() || !window.api.prints) return;
+  const r = await window.api.prints.listar(dirDoJogo()).catch(() => null);
+  listaPrints = (r && r.ok && r.prints) ? r.prints : [];
+
+  const img = $('#heroPrintImg'), cap = $('#heroPrintCap');
+  if (!img || !cap) return;
+
+  if (!listaPrints.length) {
+    img.classList.add('ph');
+    img.style.backgroundImage = '';
+    img.textContent = 'PRINT DO JOGO';
+    cap.textContent = 'nenhuma print ainda · F2 no jogo';
     return;
   }
 
-  $('#devMembers').innerHTML = list.map(m => `
-    <div class="member" data-nick="${esc(m.nick)}">
-      <span class="avatar" style="width:44px;height:44px;font-size:19px;border-width:3px" data-skin="${esc(m.nick)}">${esc(m.nick[0])}</span>
-      <div style="min-width:0">
-        <div class="member__nick">${esc(m.nick)}</div>
-        <div class="dev__badges" style="margin-top:7px">
-          ${ALL_BADGES.map(b => {
-            const on = m.badges.includes(b.id);
-            return `<button class="dev__chip ${on ? 'is-on' : ''}" data-badge="${b.id}" style="${on ? 'background:' + b.bg + ';color:' + b.fg : ''}">${b.label}</button>`;
-          }).join('')}
-        </div>
-      </div>
-      <div class="member__side">
-        <select data-group>
-          <option value="player" ${m.group === 'player' ? 'selected' : ''}>jogador</option>
-          <option value="dev" ${m.group === 'dev' ? 'selected' : ''}>dev</option>
-        </select>
-        <button class="link-btn link-btn--danger" data-remove>remover</button>
-      </div>
-    </div>`).join('');
-  paintSkins($('#devMembers'));
+  const ultima = listaPrints[0];
+  const dados = await lerPrint(ultima.arquivo);
+  if (dados) {
+    img.classList.remove('ph');
+    img.textContent = '';
+    img.style.backgroundImage = 'url(' + dados + ')';
+  }
+  cap.textContent = 'SALVO EM ' + quandoLegivel(ultima.quando);
 }
 
-function openDev() { renderMembers(); open($('#devOverlay')); }
+/* ---- galeria ---- */
+/* zoom e deslocamento da foto em exibição */
+const vista = { escala: 1, x: 0, y: 0 };
 
-/* toda alteração de cargo/grupo passa por aqui — salva e repinta */
-function devApply(fn) {
-  fn();
-  saveMembers(); applyGroup(); renderMembers(); renderProfile();
+function pintarVista() {
+  const f = $('#galFoto'); if (!f) return;
+  f.style.transform = 'translate(' + vista.x + 'px,' + vista.y + 'px) scale(' + vista.escala + ')';
+  /* 0% = a foto inteira cabendo no quadro, que e onde ela comeca.
+     Mostrar "100%" ali dava a impressao de zoom no maximo. */
+  const btn = $('#galZoomReset');
+  if (btn) btn.textContent = Math.round((vista.escala - 1) * 100) + '%';
 }
 
-$('#devMembers').addEventListener('click', (e) => {
-  const row = e.target.closest('[data-nick]'); if (!row) return;
-  const m = memberOf(row.dataset.nick); if (!m) return;
+function zerarVista() { vista.escala = 1; vista.x = 0; vista.y = 0; pintarVista(); }
 
-  const chip = e.target.closest('[data-badge]');
-  if (chip) return devApply(() => {
-    const id = chip.dataset.badge;
-    const had = m.badges.includes(id);
-    m.badges = had ? m.badges.filter(x => x !== id) : m.badges.concat([id]);
-    /* só apita se o cargo mexido for da conta que está usando o launcher */
-    if (m.nick.toLowerCase() === String(state.account).toLowerCase()) notifyBadge(id, !had);
-  });
+async function mostrarPrint(i) {
+  if (!listaPrints.length) return;
+  printAtual = Math.max(0, Math.min(listaPrints.length - 1, i));
+  const p = listaPrints[printAtual];
+  const foto = $('#galFoto'), aviso = $('#galAviso');
 
-  if (e.target.closest('[data-remove]')) return devApply(() => {
-    members = members.filter(x => x !== m);
+  /* cada foto começa sem zoom: manter o anterior deixa a próxima
+     entrando cortada, e a pessoa não entende por quê */
+  zerarVista();
+  foto.hidden = true;
+  aviso.hidden = false;
+  aviso.textContent = 'CARREGANDO…';
+
+  const dados = await lerPrint(p.arquivo);
+  /* a pessoa pode ter passado pra outra enquanto esta carregava */
+  if (listaPrints[printAtual] !== p) return;
+
+  if (dados) { foto.src = dados; foto.hidden = false; aviso.hidden = true; }
+  else { aviso.textContent = 'NÃO CONSEGUI ABRIR ESTA IMAGEM'; }
+
+  $('#galQuando').textContent = quandoLegivel(p.quando);
+  $('#galConta').textContent = (printAtual + 1) + ' de ' + listaPrints.length + ' · ' + p.arquivo;
+  $('#galAnterior').disabled = printAtual === 0;
+  $('#galProxima').disabled = printAtual >= listaPrints.length - 1;
+}
+
+/* ---- zoom com a roda, arraste com o botão esquerdo ---- */
+if ($('#galImg')) {
+  const palco = $('#galImg');
+
+  palco.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const antes = vista.escala;
+    const nova = Math.max(1, Math.min(6, antes * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    if (nova === antes) return;                 /* ja no limite */
+
+    /* Amplia em cima do CURSOR, nao do centro. Com o centro fixo, o
+       pedaco que a pessoa quer ver foge da tela e ela precisa arrastar
+       atras — e ai o zoom parece que nao obedece. */
+    const r = palco.getBoundingClientRect();
+    const cx = e.clientX - (r.left + r.width / 2);
+    const cy = e.clientY - (r.top + r.height / 2);
+    /* ponto da imagem que esta sob o cursor agora */
+    const px = (cx - vista.x) / antes;
+    const py = (cy - vista.y) / antes;
+
+    vista.escala = nova;
+    if (nova === 1) { vista.x = 0; vista.y = 0; }   /* voltou ao inicio: recentraliza */
+    else { vista.x = cx - px * nova; vista.y = cy - py * nova; }
+    pintarVista();
+  }, { passive: false });
+
+  let arrasto = null;
+  palco.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || vista.escala === 1) return;
+    arrasto = { x: e.clientX, y: e.clientY, ox: vista.x, oy: vista.y };
+    palco.setPointerCapture(e.pointerId);
+    e.preventDefault();
   });
+  palco.addEventListener('pointermove', (e) => {
+    if (!arrasto) return;
+    vista.x = arrasto.ox + (e.clientX - arrasto.x);
+    vista.y = arrasto.oy + (e.clientY - arrasto.y);
+    pintarVista();
+  });
+  const soltar = () => { arrasto = null; };
+  palco.addEventListener('pointerup', soltar);
+  palco.addEventListener('pointercancel', soltar);
+  palco.addEventListener('dblclick', zerarVista);
+}
+
+if ($('#galZoomReset')) $('#galZoomReset').onclick = zerarVista;
+
+/* ---- copiar a imagem ---- */
+if ($('#galCopiar')) {
+  $('#galCopiar').onclick = async () => {
+    const b = $('#galCopiar');
+    const p = listaPrints[printAtual];
+    if (!p || !temApi() || !window.api.prints || !window.api.prints.copiar) return;
+    const r = await window.api.prints.copiar(dirDoJogo(), p.arquivo).catch(() => null);
+    b.textContent = (r && r.ok) ? 'COPIADO' : 'FALHOU';
+    setTimeout(() => { b.textContent = 'COPIAR'; }, 1600);
+  };
+}
+
+if ($('#heroPrint')) {
+  $('#heroPrint').onclick = async () => {
+    await atualizarPrints();          /* pode ter tirado print desde o boot */
+    if (!listaPrints.length) return;
+    open($('#printsOverlay'));
+    mostrarPrint(0);
+  };
+}
+if ($('#galAnterior')) $('#galAnterior').onclick = () => mostrarPrint(printAtual - 1);
+if ($('#galProxima')) $('#galProxima').onclick = () => mostrarPrint(printAtual + 1);
+
+document.addEventListener('keydown', (e) => {
+  const ov = $('#printsOverlay');
+  if (!ov || ov.hidden) return;
+  if (e.key === 'ArrowLeft') mostrarPrint(printAtual - 1);
+  else if (e.key === 'ArrowRight') mostrarPrint(printAtual + 1);
 });
 
-$('#devMembers').addEventListener('change', (e) => {
-  const row = e.target.closest('[data-nick]');
-  if (!row || !e.target.matches('[data-group]')) return;
-  const m = memberOf(row.dataset.nick); if (!m) return;
-  devApply(() => { m.group = e.target.value; });
-});
+/* Sem chamada no boot: `state.dir` so e definido dentro da restauracao
+   da pasta, que e assincrona. Chamar aqui rodava com o caminho vazio e
+   a lista voltava sempre sem nada. Quem dispara e a propria restauracao. */
 
-$('#devSearch').addEventListener('input', (e) => { devQuery = e.target.value; renderMembers(); });
+/* ============================================================
+   TERMINAL DO DEV
 
-$('#devAdd').onclick = () => {
-  const nick = $('#devNewNick').value.trim();
-  if (!nick || memberOf(nick)) { $('#devNewNick').focus(); return; }
-  members.push({ nick, group: 'player', badges: [] });
-  $('#devNewNick').value = '';
-  devApply(() => {});
+   Substituiu o painel de cargos com cliques. A ideia é a mesma
+   coisa, digitada — e digitada escala melhor: dar um cargo pra
+   dez contas era dez idas ao mouse.
+
+   TUDO AQUI É LOCAL. O `members` mora no localStorage desta
+   máquina, então mudar o cargo de outra pessoa muda só a SUA
+   cópia — no launcher dela nada acontece. Não há canal entre
+   os dois hoje.
+
+   Por isso a camada de dados está isolada em `dadosDev`: no dia
+   que existir um servidor, só estas funções mudam de dentro. Os
+   comandos que você digita continuam idênticos.
+   ============================================================ */
+const dadosDev = {
+  listar: () => members.slice(),
+  achar: (nick) => memberOf(nick),
+  criar(nick) {
+    members.push({ nick: nick, group: 'player', badges: [] });
+    this.gravar();
+  },
+  remover(nick) {
+    const alvo = String(nick).toLowerCase();
+    members = members.filter((m) => m.nick.toLowerCase() !== alvo);
+    this.gravar();
+  },
+  restaurar() {
+    members = freshMembers();
+    try { localStorage.removeItem('xyven.members'); } catch (e) { /* sem storage */ }
+    this.gravar();
+  },
+  /* qualquer mudança passa por aqui: grava e repinta o que depende */
+  gravar() {
+    saveMembers();
+    applyGroup();
+    renderProfile();
+    renderAccounts();
+  }
 };
 
-$('#devReset').onclick = () => {
-  members = freshMembers();
-  try { localStorage.removeItem('xyven.members'); } catch (e) { /* sem storage */ }
-  devApply(() => {});
-};
+/* ---- saída ---- */
+function termLinha(texto, classe) {
+  const out = $('#termOut'); if (!out) return;
+  const d = document.createElement('div');
+  if (classe) d.className = 'term__l--' + classe;
+  d.textContent = texto;
+  out.appendChild(d);
+  out.scrollTop = out.scrollHeight;
+}
+const termOk = (t) => termLinha(t);
+const termErro = (t) => termLinha(t, 'erro');
+const termDim = (t) => termLinha(t, 'dim');
+
+const idsDeCargo = () => ALL_BADGES.map((b) => b.id);
+
+function descreverMembro(m) {
+  const cargos = m.badges.length ? m.badges.join(', ') : '—';
+  return '  ' + m.nick.padEnd(18) + m.group.padEnd(8) + cargos;
+}
+
+/* ---- comandos ---- */
+const COMANDOS = [
+  {
+    nome: 'help', uso: '/help', ajuda: 'mostra esta lista',
+    roda: () => {
+      termOk('comandos:');
+      COMANDOS.forEach((c) => termOk('  ' + c.uso.padEnd(30) + c.ajuda));
+      termDim('');
+      termDim('cargos válidos: ' + idsDeCargo().join(', '));
+      termDim('grupos válidos: player, dev');
+    }
+  },
+  {
+    nome: 'lista', uso: '/lista', ajuda: 'todas as contas conhecidas',
+    roda: () => {
+      const todos = dadosDev.listar();
+      if (!todos.length) return termDim('nenhuma conta cadastrada.');
+      termOk('  ' + 'NICK'.padEnd(18) + 'GRUPO'.padEnd(8) + 'CARGOS');
+      todos.forEach((m) => termOk(descreverMembro(m)));
+      termDim(todos.length + ' conta' + (todos.length === 1 ? '' : 's'));
+    }
+  },
+  {
+    nome: 'buscar', uso: '/buscar <nick>', ajuda: 'procura por parte do nick',
+    roda: (a) => {
+      if (!a[0]) return termErro('falta o nick. exemplo: /buscar ny3');
+      const q = a[0].toLowerCase();
+      const achou = dadosDev.listar().filter((m) => m.nick.toLowerCase().includes(q));
+      if (!achou.length) return termDim('nada com "' + a[0] + '".');
+      achou.forEach((m) => termOk(descreverMembro(m)));
+    }
+  },
+  {
+    nome: 'info', uso: '/info <nick>', ajuda: 'detalhe de uma conta',
+    roda: (a) => {
+      if (!a[0]) return termErro('falta o nick.');
+      const m = dadosDev.achar(a[0]);
+      if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
+      termOk('nick   ' + m.nick);
+      termOk('grupo  ' + m.group);
+      termOk('cargos ' + (m.badges.length ? m.badges.join(', ') : '—'));
+    }
+  },
+  {
+    nome: 'grupo', uso: '/grupo <nick> <player|dev>', ajuda: 'muda o grupo da conta',
+    roda: (a) => {
+      if (a.length < 2) return termErro('uso: /grupo <nick> <player|dev>');
+      const grupo = a[1].toLowerCase();
+      if (grupo !== 'player' && grupo !== 'dev') return termErro('grupo inválido. use player ou dev.');
+      const m = dadosDev.achar(a[0]);
+      if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
+      m.group = grupo;
+      dadosDev.gravar();
+      termOk(m.nick + ' agora é ' + grupo + '.');
+    }
+  },
+  {
+    nome: 'gift', uso: '/gift <nick> <cargo>', ajuda: 'dá um cargo pra conta',
+    roda: (a) => {
+      if (a.length < 2) return termErro('uso: /gift <nick> <cargo>');
+      const cargo = a[1].toLowerCase();
+      if (!idsDeCargo().includes(cargo)) {
+        return termErro('cargo inválido. os que existem: ' + idsDeCargo().join(', '));
+      }
+      const m = dadosDev.achar(a[0]);
+      if (!m) return termErro('não conheço "' + a[0] + '". use /add pra criar.');
+      if (m.badges.includes(cargo)) return termDim(m.nick + ' já tem ' + cargo + '.');
+      m.badges.push(cargo);
+      dadosDev.gravar();
+      termOk(m.nick + ' recebeu ' + cargo + '.');
+      if (m.nick.toLowerCase() !== String(state.account).toLowerCase()) {
+        termDim('lembrete: isto vale só nesta máquina. sem servidor, o launcher de ' + m.nick + ' não vê.');
+      }
+    }
+  },
+  {
+    nome: 'tirar', uso: '/tirar <nick> <cargo>', ajuda: 'remove um cargo',
+    roda: (a) => {
+      if (a.length < 2) return termErro('uso: /tirar <nick> <cargo>');
+      const m = dadosDev.achar(a[0]);
+      if (!m) return termErro('não conheço "' + a[0] + '".');
+      const cargo = a[1].toLowerCase();
+      if (!m.badges.includes(cargo)) return termDim(m.nick + ' não tem ' + cargo + '.');
+      m.badges = m.badges.filter((x) => x !== cargo);
+      dadosDev.gravar();
+      termOk(cargo + ' saiu de ' + m.nick + '.');
+    }
+  },
+  {
+    nome: 'add', uso: '/add <nick>', ajuda: 'cadastra uma conta',
+    roda: (a) => {
+      if (!a[0]) return termErro('falta o nick.');
+      if (!NICK_OK.test(a[0])) return termErro('nick inválido. 3 a 16 caracteres, letras, números e _.');
+      if (dadosDev.achar(a[0])) return termDim(a[0] + ' já está cadastrado.');
+      dadosDev.criar(a[0]);
+      termOk(a[0] + ' cadastrado como player.');
+    }
+  },
+  {
+    nome: 'rm', uso: '/rm <nick>', ajuda: 'apaga o cadastro da conta',
+    roda: (a) => {
+      if (!a[0]) return termErro('falta o nick.');
+      const m = dadosDev.achar(a[0]);
+      if (!m) return termErro('não conheço "' + a[0] + '".');
+      dadosDev.remover(m.nick);
+      termOk(m.nick + ' removido.');
+    }
+  },
+  {
+    nome: 'contas', uso: '/contas', ajuda: 'contas logadas no launcher',
+    roda: () => {
+      CONFIG.accounts.forEach((a) => {
+        const ativa = a.name.toLowerCase() === String(state.account).toLowerCase();
+        termOk('  ' + (ativa ? '* ' : '  ') + a.name.padEnd(18) + a.type);
+      });
+      termDim(CONFIG.accounts.length + ' conta' + (CONFIG.accounts.length === 1 ? '' : 's') + '   (* = ativa)');
+    }
+  },
+  {
+    nome: 'delconta', uso: '/delconta <nick>', ajuda: 'tira a conta do launcher',
+    roda: async (a) => {
+      if (!a[0]) return termErro('falta o nick. veja em /contas');
+      const conta = CONFIG.accounts.find((c) => c.name.toLowerCase() === a[0].toLowerCase());
+      if (!conta) return termErro('"' + a[0] + '" não está logada no launcher.');
+
+      /* as mesmas travas do botão de remover conta: sem elas dá pra
+         ficar sem conta nenhuma, ou remover a que está jogando */
+      if (CONFIG.accounts.length <= 1) return termErro('é a única conta. adicione outra antes.');
+      if (jogoAberto || jogoAbrindo) return termErro('feche o Minecraft antes de remover conta.');
+
+      const alvo = conta.name;
+      if (temApi() && window.api.auth) {
+        try { await window.api.auth.esquecer(alvo); } catch (e) { /* não havia token */ }
+      }
+      if (contaMS && contaMS.nick === alvo) contaMS = null;
+
+      CONFIG.accounts = CONFIG.accounts.filter((c) => c.name !== alvo);
+      if (String(state.account).toLowerCase() === alvo.toLowerCase()) {
+        state.account = CONFIG.accounts[0].name;
+        profile.nick = state.account; profile.skin = state.account;
+        capasDaConta = []; contaEhPremium = false;
+        termDim('era a conta ativa; troquei pra ' + state.account + '.');
+      }
+      saveAccounts(); saveProfile();
+      applyGroup(); renderStats(); renderProfile(); renderAccounts();
+      termOk(alvo + ' saiu do launcher. o token guardado dela foi apagado.');
+    }
+  },
+  {
+    nome: 'cargos', uso: '/cargos', ajuda: 'lista os cargos que existem',
+    roda: () => ALL_BADGES.forEach((b) => termOk('  ' + b.id.padEnd(12) + b.label))
+  },
+  {
+    nome: 'restaurar', uso: '/restaurar', ajuda: 'volta a lista ao padrão',
+    roda: () => { dadosDev.restaurar(); termOk('lista restaurada.'); }
+  },
+  {
+    nome: 'limpar', uso: '/limpar', ajuda: 'limpa a tela',
+    roda: () => { $('#termOut').innerHTML = ''; }
+  }
+];
+
+/* ---- interpretador ---- */
+function rodarComando(linha) {
+  /* a barra é opcional: quem vem do Minecraft digita com, quem vem
+     de terminal digita sem. aceitar os dois evita atrito à toa. */
+  const limpo = linha.trim().replace(/^\//, '');
+  if (!limpo) return;
+  const partes = limpo.split(/\s+/);
+  const nome = partes[0].toLowerCase();
+  const args = partes.slice(1);
+
+  const cmd = COMANDOS.find((c) => c.nome === nome);
+  if (!cmd) {
+    termErro('não conheço "' + nome + '".');
+    /* sugere o mais parecido em vez de só reclamar */
+    const perto = COMANDOS.find((c) => c.nome.startsWith(nome.slice(0, 3)));
+    termDim(perto ? 'você quis dizer /' + perto.nome + '?' : 'digite /help pra ver a lista.');
+    return;
+  }
+  /* alguns comandos são async (delconta apaga token no disco).
+     await num retorno não-promessa é inofensivo, então trata igual. */
+  Promise.resolve()
+    .then(() => cmd.roda(args))
+    .catch((e) => termErro('o comando quebrou: ' + (e && e.message ? e.message : String(e))));
+}
+
+/* ---- entrada, com histórico ---- */
+const termHist = [];
+let termHistPos = -1;
+
+function abrirTerminal() {
+  const out = $('#termOut');
+  if (out && !out.childElementCount) {
+    termDim('terminal do Xyven — ' + dadosDev.listar().length + ' contas conhecidas');
+    termDim('tudo aqui é local a esta máquina. /help pra começar.');
+    termDim('');
+  }
+  open($('#devOverlay'));
+  setTimeout(() => { const i = $('#termIn'); if (i) i.focus(); }, 30);
+}
+
+if ($('#termIn')) {
+  $('#termIn').addEventListener('keydown', (e) => {
+    const campo = e.target;
+    if (e.key === 'Enter') {
+      const linha = campo.value;
+      campo.value = '';
+      if (!linha.trim()) return;
+      termLinha('> ' + linha, 'eco');
+      termHist.unshift(linha);
+      termHistPos = -1;
+      rodarComando(linha);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (termHistPos + 1 < termHist.length) campo.value = termHist[++termHistPos];
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (termHistPos > 0) campo.value = termHist[--termHistPos];
+      else { termHistPos = -1; campo.value = ''; }
+    }
+  });
+}
 
 /* ============================================================
    10.e NOTIFICAções — o sino apita quando a conta ativa ganha cargo

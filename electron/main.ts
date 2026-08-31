@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron';
 import { join } from 'path';
 import * as mc from './minecraft';
 import * as auth from './auth';
 import * as servidores from './servidores';
+import * as prints from './prints';
 import * as discord from './discord';
 import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
@@ -277,6 +278,27 @@ function createWindow() {
   ipcMain.handle('discord:ligar', () => { discord.ligar(); return true; });
   ipcMain.handle('discord:estado', (_e, estado: any) => { discord.definirEstado(estado); return true; });
   ipcMain.handle('discord:desligar', () => { discord.desligar(); return true; });
+  /* prints do jogo: lista leve, imagem sob demanda */
+  ipcMain.handle('prints:listar', async (_e, gameDir: string) => {
+    try { return { ok: true, prints: await prints.listar(mc.pastaPerfil(String(gameDir))) }; }
+    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
+  /* copia a imagem em si pra área de transferência: colar no Discord
+     ou no Paint tem que trazer a foto, não o caminho dela em texto */
+  ipcMain.handle('prints:copiar', (_e, gameDir: string, arquivo: string) => {
+    try {
+      const caminho = prints.caminhoDe(mc.pastaPerfil(String(gameDir)), String(arquivo));
+      if (!caminho) return { ok: false, erro: 'nome de arquivo inválido.' };
+      const img = nativeImage.createFromPath(caminho);
+      if (img.isEmpty()) return { ok: false, erro: 'não consegui ler a imagem.' };
+      clipboard.writeImage(img);
+      return { ok: true };
+    } catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
+  ipcMain.handle('prints:ler', async (_e, gameDir: string, arquivo: string) => {
+    try { return { ok: true, dados: await prints.ler(mc.pastaPerfil(String(gameDir)), String(arquivo)) }; }
+    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
   ipcMain.handle('copiar', (_e, texto: string) => { clipboard.writeText(String(texto || '')); return true; });
   ipcMain.handle('abrirLink', (_e, url: string) => {
     if (/^https:\/\//i.test(url)) shell.openExternal(url);   /* só https sai daqui */

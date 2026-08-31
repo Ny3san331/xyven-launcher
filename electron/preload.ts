@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('api', {
   cosmeticos: (dados: unknown) => ipcRenderer.invoke('cosmeticos:aplicar', dados),
   copiar: (texto: string) => ipcRenderer.invoke('copiar', texto),
   servidoresStatus: (lista: string[]) => ipcRenderer.invoke('servidores:status', lista),
+  prints: {
+    listar: (gameDir: string) => ipcRenderer.invoke('prints:listar', gameDir),
+    ler: (gameDir: string, arquivo: string) => ipcRenderer.invoke('prints:ler', gameDir, arquivo),
+    copiar: (gameDir: string, arquivo: string) => ipcRenderer.invoke('prints:copiar', gameDir, arquivo),
+  },
 
   discord: {
     ligar: () => ipcRenderer.invoke('discord:ligar'),

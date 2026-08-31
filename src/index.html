@@ -92,10 +92,10 @@
           </div>
 
           <div class="hero__right">
-            <div class="polaroid">
-              <div class="polaroid__img ph">PRINT DO JOGO</div>
-              <div class="polaroid__cap">SALVO EM 27/08 — 15:52</div>
-            </div>
+            <button class="polaroid" id="heroPrint" title="ver todas as prints">
+              <div class="polaroid__img ph" id="heroPrintImg">PRINT DO JOGO</div>
+              <div class="polaroid__cap" id="heroPrintCap">nenhuma print ainda</div>
+            </button>
           </div>
         </section>
 
@@ -411,29 +411,52 @@
 </div>
 
 <!-- ============ MODAL: MENU DEV ============ -->
-<div class="overlay" id="devOverlay" hidden data-close>
+<div class="overlay" id="printsOverlay" hidden data-close data-wide="prints">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal__head modal__head--mustard">
+      <h3>Prints do jogo</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="gal">
+      <div class="gal__palco">
+        <button class="gal__seta" id="galAnterior" title="anterior">‹</button>
+        <div class="gal__img" id="galImg">
+          <img id="galFoto" alt="" draggable="false" hidden>
+          <span class="gal__aviso" id="galAviso">CARREGANDO…</span>
+        </div>
+        <button class="gal__seta" id="galProxima" title="próxima">›</button>
+      </div>
+      <div class="gal__pe">
+        <span class="gal__quando" id="galQuando">—</span>
+        <span class="skin__hint" id="galConta">—</span>
+      </div>
+    </div>
+    <div class="form__foot">
+      <span class="skin__hint">← → passam · roda dá zoom · arraste move</span>
+      <div style="display:flex;gap:10px">
+        <button class="btn" id="galZoomReset">100%</button>
+        <button class="btn btn--teal" id="galCopiar">COPIAR</button>
+        <button class="btn" data-close>FECHAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="devOverlay" hidden data-close data-wide="term">
   <div class="modal" style="width:720px">
     <div class="modal__head" style="background:var(--teal);color:#f4e7ca">
       <h3>Dev</h3>
       <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
-    <div class="dev">
-      <div class="dev__warn">painel de cargos. define o que cada conta é no client — não mexe em skin, horas ou servidores.</div>
-
-      <div class="search" style="margin:0">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <input id="devSearch" placeholder="buscar por nick...">
-      </div>
-
-      <div class="members" id="devMembers"></div>
-
-      <div class="dev__add">
-        <input type="text" id="devNewNick" placeholder="nick da conta" maxlength="16">
-        <button class="btn btn--teal" id="devAdd">ADICIONAR</button>
+    <div class="term">
+      <div class="term__out" id="termOut"></div>
+      <div class="term__line">
+        <span class="term__prompt">&gt;</span>
+        <input id="termIn" autocomplete="off" spellcheck="false" placeholder="digite /help e aperte enter">
       </div>
     </div>
     <div class="form__foot">
-      <button class="btn" id="devReset">RESTAURAR</button>
+      <span class="skin__hint">setas ↑ ↓ repetem comandos</span>
       <button class="btn btn--teal" data-close>FECHAR</button>
     </div>
   </div>
