@@ -33,7 +33,6 @@
         <span id="chipName">Ny3san</span>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
       </button>
-      <button class="btn btn--pro">★ OBTER PRO</button>
     </div>
     <div class="header__controls">
       <button class="win-btn" id="btnMin" aria-label="Minimizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -173,6 +172,22 @@
 
         <div class="feed" id="feed"></div>
       </div>
+
+      <!-- ============ TELA: COSMÉTICOS ============ -->
+      <div class="wrap" id="screen-cosmetics" hidden>
+        <div class="section__head">
+          <h2>Cosméticos</h2>
+          <button class="btn btn--teal perm perm--loja" id="novoItemBtn">+ NOVO ITEM</button>
+        </div>
+
+        <div class="filters">
+          <span id="lojaFiltros" style="display:contents"></span>
+          <button class="chip perm perm--loja" id="novaCatBtn">+ CATEGORIA</button>
+          <button class="chip perm perm--loja" id="apagarCatBtn">APAGAR CATEGORIA</button>
+        </div>
+
+        <div class="loja" id="lojaGrade"></div>
+      </div>
     </main>
   </div>
 </div>
@@ -283,7 +298,7 @@
     <div class="addkind">
       <button class="addkind__opt" id="addOriginal" style="background:var(--mustard)">
         <span class="addkind__mark" style="background:var(--paper)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21c0-3.3 3.6-5 8-5s8 1.7 8 5M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/></svg>
         </span>
         <span>
           <span class="addkind__name">Conta original</span><br>
@@ -427,6 +442,7 @@
       <div class="aviso__titulo" id="avisoTitulo"></div>
       <div class="aviso__texto" id="avisoTexto"></div>
     </div>
+    <div class="aviso__post" id="avisoPost" hidden></div>
     <div class="form__foot aviso__foot" style="justify-content:flex-end">
       <button class="btn btn--teal" id="avisoFechar">FECHAR</button>
     </div>
@@ -500,10 +516,96 @@
       </div>
       <p class="read__body selectable" id="readBody"></p>
       <img class="postimg postimg--foto" id="readImg" hidden alt="">
+      <div class="secs" id="readSecs"></div>
     </div>
     <div class="form__foot" style="padding-top:16px;border-top:var(--bw) solid var(--ink)">
       <button class="btn perm perm--escrever" id="readEdit">EDITAR</button>
       <button class="btn btn--teal" data-close>FECHAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: NOVO ITEM DA LOJA ============ -->
+<div class="overlay" id="itemOverlay" hidden data-close>
+  <div class="modal" style="width:560px">
+    <div class="modal__head modal__head--teal">
+      <h3 id="itemModalTitulo">Novo item</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="form">
+      <div class="form__row">
+        <label>ID<input type="text" id="itemId" placeholder="capa-halloween" spellcheck="false" maxlength="20"></label>
+        <label>CATEGORIA<select id="itemCat"></select></label>
+      </div>
+      <label>NOME<input type="text" id="itemNome" placeholder="CAPA DE HALLOWEEN" maxlength="32"></label>
+      <label>DESCRIÇÃO<textarea id="itemDesc" placeholder="de onde veio, quem ganha, por quanto tempo."></textarea></label>
+      <label>IMAGEM
+        <div style="display:flex;gap:12px">
+          <input type="text" id="itemImg" placeholder="cole um link, ou escolha um arquivo" spellcheck="false">
+          <button type="button" class="btn" style="padding:0 18px" id="itemImgPick">ESCOLHER</button>
+          <button type="button" class="btn" style="padding:0 18px" id="itemImgClear">TIRAR</button>
+        </div>
+      </label>
+      <div class="postimg" id="itemImgPrev" hidden></div>
+      <input type="file" id="itemImgFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+    </div>
+    <div class="form__foot">
+      <button class="btn" data-close>CANCELAR</button>
+      <button class="btn btn--teal" id="itemSalvar">PUBLICAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: CATEGORIA ============ -->
+<div class="overlay" id="catOverlay" hidden data-close>
+  <div class="modal" style="width:440px">
+    <div class="modal__head modal__head--teal">
+      <h3>Nova categoria</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="form">
+      <label>ID<input type="text" id="catId" placeholder="asas" spellcheck="false" maxlength="20"></label>
+      <label>NOME<input type="text" id="catNome" placeholder="ASAS" maxlength="32"></label>
+      <span class="field__hint">o ID é a chave e não muda depois. o NOME é o que aparece no filtro.</span>
+    </div>
+    <div class="form__foot">
+      <button class="btn" data-close>CANCELAR</button>
+      <button class="btn btn--teal" id="catSalvar">CRIAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: PREVIEW DO ITEM ============ -->
+<div class="overlay" id="previewOverlay" hidden data-close>
+  <div class="modal" style="width:600px">
+    <div class="modal__head modal__head--mustard">
+      <h3 id="previewTitulo">Preview</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="prev">
+      <div class="prev__palco" id="prevPalco">
+        <canvas class="skin__body" id="prevBody"></canvas>
+      </div>
+      <div class="prev__lado">
+        <div class="postimg" id="prevArte" hidden></div>
+        <p class="prev__desc" id="prevDesc"></p>
+        <span class="field__hint" id="prevNota"></span>
+      </div>
+    </div>
+    <div class="form__foot">
+      <button class="btn btn--teal" data-close>FECHAR</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: PERGUNTA / AVISO ============ -->
+<div class="overlay" id="askOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:440px">
+    <div class="modal__head modal__head--salmon"><h3 id="askTitulo">Confirmar</h3></div>
+    <div class="ask__corpo" id="askTexto"></div>
+    <div class="form__foot ask__foot">
+      <button class="btn btn--red" id="askNao">NÃO</button>
+      <button class="btn btn--teal" id="askSim">SIM</button>
     </div>
   </div>
 </div>
@@ -521,7 +623,9 @@
         <label>ETIQUETA<select id="postTag"></select></label>
         <label class="form__check"><input type="checkbox" id="postPin"> fixar no topo</label>
       </div>
-      <label>TEXTO<textarea id="postBody" placeholder="escreva em minúsculas, seco e curto. duas linhas já dizem muito."></textarea></label>
+      <label>TEXTO<textarea id="postBody" placeholder="escreva em minúsculas, seco e curto. duas linhas já dizem muito."></textarea>
+        <span class="field__hint"># maior &middot; ## maior ainda &middot; ### o maior &middot; &amp;c pinta o que vier depois (as cores do Minecraft)</span>
+      </label>
       <label>IMAGEM
         <div style="display:flex;gap:12px">
           <input type="text" id="postImg" placeholder="cole um link, ou escolha um arquivo" spellcheck="false">
@@ -531,9 +635,16 @@
       </label>
       <div class="postimg" id="postImgPrev" hidden></div>
       <input type="file" id="postImgFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+
+      <label>SEÇÕES
+        <span class="field__hint">cada uma vira um bloco com ícone, título e texto. deixe vazio pra uma postagem simples.</span>
+      </label>
+      <div class="seced" id="secEditor"></div>
+      <button type="button" class="btn" id="secAdd" style="align-self:flex-start">+ SEÇÃO</button>
     </div>
     <div class="form__foot">
       <button class="btn" data-close>CANCELAR</button>
+      <button class="btn" id="postPreview">PREVIEW</button>
       <button class="btn btn--teal" id="postSave">PUBLICAR</button>
     </div>
   </div>

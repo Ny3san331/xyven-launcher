@@ -135,16 +135,22 @@ export const comItem = (lista: string[] | null, item: string) =>
 export const semItem = (lista: string[] | null, item: string) =>
   (lista || []).filter((x) => x !== item);
 
-/* Cargo agora e linha de tabela, nao constante: um cargo criado pelo
-   /cargo create tem que valer no /gift no mesmo instante. Capa segue
-   fixa porque cada uma precisa do arquivo .png dentro do launcher. */
+/* Cargo e cosmetico sao linhas de tabela, nao constantes: o que o
+   /cargo create e a loja criam tem que valer no /gift no mesmo
+   instante. `capa` continua sendo o nome do tipo por compatibilidade —
+   a coluna em `jogadores` chama capas e guarda qualquer cosmetico. */
 export async function tipoDoItem(
   sb: ReturnType<typeof admin>,
   item: string
 ): Promise<'cargo' | 'capa' | null> {
-  if (CAPAS.includes(item)) return 'capa';
-  const { data } = await sb.from('cargos').select('id').eq('id', item).maybeSingle();
-  return data ? 'cargo' : null;
+  const [cargo, cosm] = await Promise.all([
+    sb.from('cargos').select('id').eq('id', item).maybeSingle(),
+    sb.from('cosmeticos').select('id').eq('id', item).maybeSingle()
+  ]);
+  if (cargo.data) return 'cargo';
+  if (cosm.data) return 'capa';
+  /* fallback: as quatro de sempre, caso a tabela ainda nao exista */
+  return CAPAS.includes(item) ? 'capa' : null;
 }
 
 /* Conta offline entra na tabela com uuid sintetico. Serve pra ela
@@ -200,15 +206,35 @@ export async function registrarPirata(sb: ReturnType<typeof admin>, nick: string
    entrado. Guardado em minúsculo, igual `pendentes`.
    ------------------------------------------------------------ */
 export async function ultimoAviso(sb: ReturnType<typeof admin>, nick: string) {
-  if (!nick) return null;
+  /* `alvo` nulo = pra todo mundo (vem do /update). Um `or` so, e nao
+     duas consultas, pra que o mais recente entre os dois ganhe — se
+     fossem separadas eu teria que decidir qual vem primeiro, e a
+     resposta certa e sempre "o ultimo". */
+  const filtro = nick
+    ? 'alvo.eq.' + chaveNick(nick) + ',alvo.is.null'
+    : 'alvo.is.null';
+
   const { data } = await sb
     .from('avisos')
-    .select('id, titulo, texto')
-    .eq('alvo', chaveNick(nick))
+    .select('id, titulo, texto, postagem_id')
+    .or(filtro)
     .order('id', { ascending: false })
     .limit(1)
     .maybeSingle();
-  return data || null;
+  if (!data) return null;
+
+  /* Aviso de /update carrega a postagem inteira. Sem isto o launcher
+     teria que ir buscar depois, e quem abrisse offline veria um
+     recado vazio apontando pra lugar nenhum. */
+  if (data.postagem_id) {
+    const { data: post } = await sb
+      .from('postagens')
+      .select('id, titulo, corpo, tag, imagem, secoes, autor_nick, criado_em')
+      .eq('id', data.postagem_id)
+      .maybeSingle();
+    return { ...data, post: post || null };
+  }
+  return data;
 }
 
 /* ------------------------------------------------------------

@@ -45,6 +45,18 @@ try {
 }
 
 app.setPath('userData', PASTA_DADOS);
+
+/* ------------------------------------------------------------
+   Identidade do app pra barra de tarefas do Windows
+
+   Tem que ser IGUAL ao `appId` do electron-builder.json: o instalador
+   carimba aquele id no atalho, e o processo declara este aqui. Se os
+   dois nao baterem — ou se este faltar, que era o caso — o Windows
+   nao sabe a que botao a janela pertence e usa heuristica: as vezes
+   ela ia parar dentro do botao de OUTRO programa, e Win+numero abria
+   o programa errado.
+   ------------------------------------------------------------ */
+if (process.platform === 'win32') app.setAppUserModelId('com.xyven.launcher');
 import { copyFile, mkdir, stat, writeFile, unlink, readdir } from 'fs/promises';
 import { createWriteStream } from 'fs';
 import { createHash } from 'crypto';
@@ -294,7 +306,7 @@ function createWindow() {
   ipcMain.handle('auth:entrar', async () => {
     const passo = (t: string) => { if (!win.isDestroyed()) win.webContents.send('auth:passo', t); };
     try {
-      const conta = await auth.entrar(win.isDestroyed() ? null : win, passo);
+      const conta = await auth.entrar(passo);
       /* null = fechou a janela; não é erro, é desistência */
       if (!conta) return { ok: false, cancelado: true };
       return { ok: true, conta };
@@ -338,6 +350,10 @@ function createWindow() {
      O renderer diz qual conta esta ativa; quando a linha dela muda
      no banco, devolvemos um 'xyven:mudou' e ele refaz a consulta.
      O evento nao traz conteudo — so o aviso de que ha o que buscar. */
+  ipcMain.handle('xyven:listarLoja', () => xyvenapi.listarLoja());
+  ipcMain.handle('xyven:loja', (_e, token: string, corpo: Record<string, unknown>) =>
+    xyvenapi.loja(String(token), corpo || {}));
+
   ipcMain.handle('xyven:listarCargos', () => xyvenapi.listarCargos());
   ipcMain.handle('xyven:cargo', (_e, token: string, corpo: Record<string, unknown>) =>
     xyvenapi.cargo(String(token), corpo || {}));

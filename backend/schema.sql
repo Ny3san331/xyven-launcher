@@ -273,3 +273,88 @@ end $$;
 alter table cargos drop constraint if exists cor_valida;
 alter table cargos add constraint cor_valida
   check (cor in ('teal', 'salmon', 'mustard', 'sand', 'ink', 'red', 'muted', 'paper'));
+
+-- ============================================================
+-- loja: categorias e cosmeticos  (rode este bloco no SQL Editor)
+--
+-- Cosmetico virou linha de tabela, como cargo. Antes eram quatro
+-- capas escritas no codigo, em dois lugares que precisavam concordar
+-- (CAPAS no servidor, CAPAS_XYVEN no launcher).
+--
+-- TOTAL nao e categoria: e o filtro "tudo", como o TODAS do mural.
+-- Guardar uma linha pra ele so criaria a chance de alguem apagar.
+-- ============================================================
+create table if not exists categorias (
+  id         text primary key,              -- slug minusculo
+  nome       text not null,                 -- como aparece no filtro
+  ordem      int  not null default 100,     -- menor vem antes
+  criado_em  timestamptz not null default now()
+);
+
+create table if not exists cosmeticos (
+  id         text primary key,              -- o mesmo id que o /gift usa
+  nome       text not null,
+  descricao  text not null default '',
+  -- Pra capa, ESTA e a textura de verdade (64x32): o card mostra o
+  -- recorte da frente, e o preview veste ela na skin. Uma imagem so,
+  -- pra nao ter arte de vitrine que nao corresponde ao que se ganha.
+  imagem     text,
+  categoria  text not null references categorias(id) on delete restrict,
+  por_uuid   text,
+  criado_em  timestamptz not null default now()
+);
+
+create index if not exists cosmeticos_cat_idx on cosmeticos (categoria, id);
+
+alter table categorias enable row level security;
+alter table cosmeticos enable row level security;
+
+-- leitura publica: a loja e pra ser vista, inclusive por quem nao tem
+drop policy if exists categorias_leitura on categorias;
+create policy categorias_leitura on categorias for select using (true);
+drop policy if exists cosmeticos_leitura on cosmeticos;
+create policy cosmeticos_leitura on cosmeticos for select using (true);
+
+-- de fabrica
+insert into categorias (id, nome, ordem) values ('capas', 'CAPAS', 1)
+on conflict (id) do nothing;
+
+-- As quatro que ja existiam. `imagem` fica NULA de proposito: o .png
+-- delas vai dentro do launcher, em capes/. O launcher usa o arquivo
+-- local quando nao ha imagem no banco, pra nao ter que reenviar.
+insert into cosmeticos (id, nome, categoria) values
+  ('caveira',   'CAVEIRA',   'capas'),
+  ('moonlight', 'MOONLIGHT', 'capas'),
+  ('broken',    'BROKEN',    'capas'),
+  ('enderman',  'ENDERMAN',  'capas')
+on conflict (id) do nothing;
+
+do $$
+begin
+  alter publication supabase_realtime add table cosmeticos;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter publication supabase_realtime add table categorias;
+exception when duplicate_object then null;
+end $$;
+
+-- ============================================================
+-- postagem em secoes, e aviso pra todo mundo
+-- (rode este bloco no SQL Editor)
+--
+-- `secoes` e uma lista: [{icone, titulo, texto}]. Guardada como jsonb
+-- e nao em tabela propria porque secao nao existe sozinha — nasce e
+-- morre com a postagem, e nunca e consultada por fora dela.
+--
+-- `avisos.alvo` passa a aceitar NULO = todo mundo. Era sempre um nick
+-- porque so existia o /title; o /update precisa alcancar todos.
+-- ============================================================
+alter table postagens add column if not exists secoes jsonb not null default '[]'::jsonb;
+
+alter table avisos add column if not exists postagem_id bigint
+  references postagens(id) on delete cascade;
+
+-- indice pro caminho novo: "o ultimo aviso pra este nick OU pra todos"
+create index if not exists avisos_alvo_todos_idx on avisos (id desc) where alvo is null;

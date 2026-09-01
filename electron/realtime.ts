@@ -159,6 +159,17 @@ export function seguirPosts(aoMudar: () => void) {
       { event: '*', schema: 'public', table: 'cargos' },
       () => aoMudar()
     )
+    /* item ou categoria nova aparece pra todo mundo na hora */
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'cosmeticos' },
+      () => aoMudar()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'categorias' },
+      () => aoMudar()
+    )
     .subscribe((estado, erro) => {
       console.log('[realtime] mural: ' + estado +
         (erro ? ' — ' + (erro.message || erro) : ''));

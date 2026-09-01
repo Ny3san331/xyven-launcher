@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.cargo]
 verify_jwt = false
+
+[functions.loja]
+verify_jwt = false

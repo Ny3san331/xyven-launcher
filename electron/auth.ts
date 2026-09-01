@@ -1,36 +1,62 @@
 /* ============================================================
-   LOGIN MICROSOFT — fluxo de código do CmlLib.Core.
+   LOGIN MICROSOFT — registro proprio no Entra.
 
-   Copiado do CmlLib.Core.Auth.Microsoft (JELoginHandler +
-   XboxAuthNet.Game). Não é o OAuth do Entra ID: é o endpoint
-   antigo do Live, com o title id do próprio launcher oficial
-   do Minecraft. É por isso que funciona — um app registrado
-   por nós no Entra leva 403 da API do Minecraft.
+   Antes o launcher usava o client id do launcher OFICIAL do
+   Minecraft, emprestado do CmlLib.Core. Funcionava porque aquele
+   id ja esta na lista de permissao da Mojang — a nossa nao estava,
+   e um app proprio levava 403 da API do Minecraft.
 
-   JELoginHandler.DefaultMicrosoftOAuthClientInfo:
-     ClientId = XboxGameTitles.MinecraftJava
-     Scopes   = XboxAuthConstants.XboxScope
-   CodeFlowLiveApiClient: authorize / token / redirect abaixo.
+   Agora o nosso appId foi aprovado pela Mojang (31/08/2026), entao
+   da pra usar o registro proprio. Duas diferencas que quebram tudo
+   se passarem batidas:
+
+     - o endpoint e o do Entra, nao o antigo do Live
+     - o RpsTicket vai com o prefixo `d=`, que o fluxo antigo NAO
+       usava (ver o passo do Xbox Live la embaixo)
+
+   Cliente PUBLICO com PKCE: launcher e .exe na maquina de quem usa,
+   e segredo dentro de .exe qualquer um extrai. O PKCE protege o
+   fluxo sem nada secreto ir junto.
 
    O usuário entra numa janela separada; o launcher nunca vê a
    senha. Só o processo principal fala com a rede.
 
-   Cadeia: Live -> Xbox Live -> XSTS -> Minecraft -> perfil.
+   Cadeia: Entra -> Xbox Live -> XSTS -> Minecraft -> perfil.
    ============================================================ */
-import { app, safeStorage, BrowserWindow } from 'electron';
+import { app, safeStorage, shell } from 'electron';
+import { createServer, type Server } from 'http';
 import { readFile, writeFile, mkdir, unlink, appendFile } from 'fs/promises';
 import { join, dirname } from 'path';
+import { randomBytes, createHash } from 'crypto';
 
-/* XboxGameTitles.MinecraftJava — o title do launcher oficial. */
-export const CLIENT_ID = '00000000402b5328';
+/* Registro do Xyven no Entra. E identificador publico, nao segredo:
+   vai dentro de todo launcher que fala com a Microsoft. */
+export const CLIENT_ID = '0f601ed2-cbe5-4c04-bf9b-16aabbd69714';
 
-/* XboxAuthConstants.XboxScope */
-const ESCOPO = 'service::user.auth.xboxlive.com::MBI_SSL';
+/* `offline_access` e o que devolve refresh_token — sem ele a pessoa
+   reloga a cada hora. */
+const ESCOPO = 'XboxLive.signin offline_access';
 
-/* CodeFlowLiveApiClient */
-const OAUTH_AUTORIZAR = 'https://login.live.com/oauth20_authorize.srf';
-const OAUTH_TOKEN = 'https://login.live.com/oauth20_token.srf';
-const OAUTH_REDIRECT = 'https://login.live.com/oauth20_desktop.srf';
+/* /consumers e nao /common: conta do Minecraft e conta PESSOAL.
+   Com /common uma conta corporativa entra no fluxo, vai ate o fim e
+   so falha no passo do Minecraft, com um erro que nao explica nada. */
+const ENTRA = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
+const OAUTH_AUTORIZAR = ENTRA + '/authorize';
+const OAUTH_TOKEN = ENTRA + '/token';
+
+/* Volta pelo NAVEGADOR de verdade, num servidor local.
+
+   Registrar no portal como `http://localhost` (sem porta). Cliente
+   publico tem excecao de loopback: a porta e ignorada na comparacao,
+   entao da pra usar uma porta sorteada a cada login em vez de fixar
+   uma que pode estar ocupada.
+
+   Por que nao a janela embutida: ela nao tem barra de endereco, entao
+   a pessoa nao consegue conferir que esta mesmo na Microsoft — e e
+   exatamente assim que golpe de login funciona. No navegador dela o
+   cadeado e o dominio estao a vista, e o gerenciador de senhas dela
+   funciona. */
+const OAUTH_REDIRECT_BASE = 'http://localhost';
 
 const XBL = 'https://user.auth.xboxlive.com/user/authenticate';
 const XSTS = 'https://xsts.auth.xboxlive.com/xsts/authorize';
@@ -47,88 +73,157 @@ export type ContaMS = {
 };
 
 /* ------------------------------------------------------------
-   passo 1 e 2 — a janela de login
+   passo 1 e 2 — o login, no navegador da pessoa
 
-   O CmlLib usa WebView2 aqui, que só existe no Windows. No
-   Electron o equivalente é uma BrowserWindow: mesma página,
-   mesmo redirect, mesmo código no fim.
+   Nao ha mais janela embutida. Ela nao tem barra de endereco, entao
+   nao dava pra conferir que a pagina era mesmo da Microsoft — e e
+   assim que golpe de login funciona. No navegador dela o dominio e o
+   cadeado estao a vista, e o gerenciador de senhas dela funciona.
 
-   A partição é descartável de propósito: sem ela, a segunda
-   conta entra sozinha com a sessão da primeira e o
-   prompt=select_account não adianta.
+   Cada login sorteia uma porta local. `prompt=select_account` cuida
+   do que a particao descartavel cuidava antes: a Microsoft pergunta
+   qual conta, em vez de entrar direto com a ultima.
    ------------------------------------------------------------ */
-let janelaLogin: BrowserWindow | null = null;
+
+/* O redirect muda a cada login (porta sorteada) e a troca do code
+   precisa mandar exatamente o mesmo — o Entra confere. */
+let redirectAtual = '';
+let servidorLogin: Server | null = null;
 
 export function abortarLogin() {
-  if (janelaLogin && !janelaLogin.isDestroyed()) janelaLogin.close();
-  janelaLogin = null;
+  /* Cancelar tem que derrubar a porta. Sem isto ela ficava escutando
+     ate o app fechar, e a proxima tentativa abriria outra. */
+  if (servidorLogin) { servidorLogin.close(); servidorLogin = null; }
 }
 
-function urlAutorizacao(): string {
+/* ------------------------------------------------------------
+   PKCE
+
+   O `code` volta pela barra de endereco e nao e segredo. Sozinho ele
+   nao serve: a troca por token exige o `code_verifier`, que so este
+   processo conhece e nunca sai daqui.
+
+   Guardado num let e nao passado adiante porque so existe UM login
+   em andamento por vez — pedirCodigoNaJanela aborta o anterior.
+   ------------------------------------------------------------ */
+let verificadorPkce = '';
+
+function base64url(b: Buffer): string {
+  return b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function novoPkce(): string {
+  verificadorPkce = base64url(randomBytes(32));
+  return base64url(createHash('sha256').update(verificadorPkce).digest());
+}
+
+/* `state` amarra a resposta a ESTE pedido. O servidor local aceita
+   conexao de qualquer coisa rodando na maquina; sem conferir o state,
+   outro programa poderia mandar um code dele na nossa porta e a conta
+   logada seria a dele, nao a de quem clicou. */
+let estadoAtual = '';
+
+function urlAutorizacao(redirect: string): string {
+  estadoAtual = base64url(randomBytes(16));
   const q = new URLSearchParams({
     client_id: CLIENT_ID,
     scope: ESCOPO,
-    redirect_uri: OAUTH_REDIRECT,
+    redirect_uri: redirect,
     response_type: 'code',
     response_mode: 'query',
-    prompt: 'select_account'
+    prompt: 'select_account',
+    state: estadoAtual,
+    code_challenge: novoPkce(),
+    code_challenge_method: 'S256'
   });
   return OAUTH_AUTORIZAR + '?' + q.toString();
 }
 
+/* o que a pessoa ve no navegador quando termina */
+function paginaDeVolta(titulo: string, recado: string): string {
+  return '<!doctype html><meta charset="utf-8">' +
+    '<title>Xyven</title>' +
+    '<body style="margin:0;height:100vh;display:grid;place-items:center;' +
+    'background:#e9d9b8;color:#33261c;font:15px ui-monospace,monospace;text-align:center">' +
+    '<div style="border:3px solid #33261c;background:#f4e7ca;box-shadow:6px 6px 0 #33261c;' +
+    'padding:28px 34px;max-width:420px">' +
+    '<div style="font-size:20px;font-weight:700;margin-bottom:10px">' + titulo + '</div>' +
+    '<div style="line-height:1.7">' + recado + '</div></div></body>';
+}
+
 /* devolve o code do redirect, ou null se a pessoa fechou a janela */
-function pedirCodigoNaJanela(pai: BrowserWindow | null): Promise<string | null> {
+function pedirCodigoNoNavegador(): Promise<string | null> {
   return new Promise((resolve, reject) => {
     abortarLogin();
-    const temPai = !!(pai && !pai.isDestroyed());
-    const w = new BrowserWindow({
-      parent: temPai ? (pai as BrowserWindow) : undefined,
-      modal: temPai,
-      width: 520, height: 700, minimizable: false, maximizable: false,
-      autoHideMenuBar: true, title: 'ENTRAR COM A MICROSOFT',
-      webPreferences: {
-        partition: 'msauth-' + Date.now(),   /* sessão limpa a cada login */
-        contextIsolation: true, nodeIntegration: false, sandbox: true
-      }
-    });
-    janelaLogin = w;
 
     let terminou = false;
+    let srv: Server | null = null;
+
     const acabar = (fn: () => void) => {
       if (terminou) return;
       terminou = true;
+      /* fecha ANTES de resolver: a porta tem que sair do ar assim que
+         o code chega, senao ela fica escutando durante todo o resto do
+         fluxo (Xbox, XSTS, Minecraft) sem precisar */
+      if (srv) { srv.close(); srv = null; }
+      servidorLogin = null;
       fn();
-      if (!w.isDestroyed()) w.close();
     };
 
-    /* o redirect é uma página em branco do próprio Live: o que
-       interessa é a query, e ela aparece antes de carregar. */
-    const olhar = (url: string) => {
-      if (!url.startsWith(OAUTH_REDIRECT)) return;
-      const q = new URL(url).searchParams;
+    srv = createServer((req, res) => {
+      /* Sem host de verdade na requisicao de loopback: a base aqui e
+         so pra o URL parsear. */
+      const q = new URL(req.url || '/', 'http://localhost').searchParams;
       const code = q.get('code');
-      if (code) return acabar(() => resolve(code));
       const erro = q.get('error');
-      if (erro) {
+
+      /* nem code nem erro: e o favicon, ou alguem batendo na porta */
+      if (!code && !erro) { res.writeHead(404).end(); return; }
+
+      if (q.get('state') !== estadoAtual) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(paginaDeVolta('Isso não veio daqui',
+          'o pedido não bate com o que o launcher abriu. tente entrar de novo.'));
+        return;   /* NAO encerra o fluxo: o de verdade ainda pode chegar */
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+
+      if (code) {
+        res.end(paginaDeVolta('Pronto', 'pode fechar esta aba e voltar pro launcher.'));
+        acabar(() => resolve(code));
+      } else {
+        res.end(paginaDeVolta('Não deu', 'volte ao launcher e tente de novo.'));
         acabar(() => reject(new Error(traduzOAuth({
           error: erro, error_description: q.get('error_description')
         }))));
       }
-    };
-
-    w.webContents.on('will-redirect', (_e, url) => olhar(url));
-    w.webContents.on('will-navigate', (_e, url) => olhar(url));
-    w.webContents.on('did-navigate', (_e, url) => olhar(url));
-    w.on('closed', () => {
-      janelaLogin = null;
-      if (!terminou) { terminou = true; resolve(null); }
     });
 
-    w.loadURL(urlAutorizacao());
+    srv.on('error', (e: any) => {
+      acabar(() => reject(new Error('não consegui abrir a porta local: ' + (e?.message || e))));
+    });
+
+    /* 127.0.0.1 e nao 0.0.0.0: a porta so aceita conexao desta
+       maquina. Aberta na rede, qualquer um do lado de ca do roteador
+       poderia mandar um code. */
+    srv.listen(0, '127.0.0.1', () => {
+      const info = srv && srv.address();
+      const porta = info && typeof info === 'object' ? info.port : 0;
+      if (!porta) return acabar(() => reject(new Error('não consegui abrir a porta local.')));
+
+      servidorLogin = srv;
+      const redirect = OAUTH_REDIRECT_BASE + ':' + porta;
+      redirectAtual = redirect;
+      shell.openExternal(urlAutorizacao(redirect)).catch((e) => {
+        acabar(() => reject(new Error('não consegui abrir o navegador: ' + (e?.message || e))));
+      });
+    });
   });
 }
 
-/* troca o code pelo token (CodeFlowLiveApiClient.GetAccessToken) */
+/* troca o code pelo token. Sem client_secret de proposito: o
+   registro e cliente publico, e o que prova a posse e o PKCE. */
 async function trocarCodigoPorToken(code: string) {
   const r = await fetch(OAUTH_TOKEN, {
     method: 'POST',
@@ -138,7 +233,8 @@ async function trocarCodigoPorToken(code: string) {
       scope: ESCOPO,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: OAUTH_REDIRECT
+      redirect_uri: redirectAtual,
+      code_verifier: verificadorPkce
     })
   });
   const j: any = await r.json();
@@ -162,7 +258,14 @@ async function autenticarXbox(msToken: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
-      Properties: { AuthMethod: 'RPS', SiteName: 'user.auth.xboxlive.com', RpsTicket: msToken   /* XboxUserTokenRequest manda cru; o 'd=' é só do Entra */ },
+      Properties: {
+        AuthMethod: 'RPS',
+        SiteName: 'user.auth.xboxlive.com',
+        /* `d=` obrigatorio pra token do Entra. O fluxo antigo do Live
+           mandava cru — trocar o endpoint sem trocar isto devolve um
+           400 do Xbox Live que nao diz o motivo. */
+        RpsTicket: 'd=' + msToken
+      },
       RelyingParty: 'http://auth.xboxlive.com',
       TokenType: 'JWT'
     })
@@ -258,11 +361,11 @@ async function montarConta(msToken: string, passo: Passo = () => {}): Promise<Co
   return { ...perfil, accessToken: mc.accessToken, expiraEm: mc.expiraEm };
 }
 
-export async function entrar(pai: BrowserWindow | null, passo: Passo = () => {}): Promise<ContaMS | null> {
+export async function entrar(passo: Passo = () => {}): Promise<ContaMS | null> {
   try {
-    passo('esperando você entrar na janela da Microsoft...');
+    passo('abrimos a Microsoft no seu navegador. termine por lá e volte.');
     await anotar('abrindo janela de login');
-    const code = await pedirCodigoNaJanela(pai);
+    const code = await pedirCodigoNoNavegador();
     if (!code) { await anotar('janela fechada pelo usuario'); return null; }
 
     const t = await trocarCodigoPorToken(code);
@@ -331,13 +434,28 @@ export async function trocarSkin(accessToken: string, urlPng: string, slim: bool
    ------------------------------------------------------------ */
 const arquivoRefresh = () => join(app.getPath('userData'), 'contas', 'refresh.json');
 
+/* Marca de qual registro os tokens vieram.
+
+   Refresh token pertence ao client id que o emitiu. Ao trocar o
+   registro (o do CmlLib pelo nosso), os guardados viram lixo: a
+   Microsoft recusa e o sintoma seria "nao consigo jogar", sem dizer
+   que basta entrar de novo. Melhor descartar e pedir o login uma vez. */
+const MARCA = '__clientId';
+
 async function lerCofre(): Promise<Record<string, string>> {
   try {
     const bruto = await readFile(arquivoRefresh());
     const txt = safeStorage.isEncryptionAvailable()
       ? safeStorage.decryptString(bruto)
       : bruto.toString('utf8');
-    return JSON.parse(txt);
+    const cofre = JSON.parse(txt) as Record<string, string>;
+
+    if (cofre[MARCA] !== CLIENT_ID) {
+      await anotar('cofre era de outro client id: descartando, sera preciso entrar de novo');
+      await unlink(arquivoRefresh()).catch(() => {});
+      return {};
+    }
+    return cofre;
   } catch { return {}; }
 }
 
@@ -354,6 +472,7 @@ async function gravarCofre(dados: Record<string, string>) {
 async function guardarRefresh(nick: string, refresh: string) {
   if (!refresh) return;
   const cofre = await lerCofre();
+  cofre[MARCA] = CLIENT_ID;
   cofre[nick.toLowerCase()] = refresh;
   await gravarCofre(cofre);
 }
@@ -361,12 +480,17 @@ async function guardarRefresh(nick: string, refresh: string) {
 export async function esquecerConta(nick: string) {
   const cofre = await lerCofre();
   delete cofre[nick.toLowerCase()];
-  if (Object.keys(cofre).length) await gravarCofre(cofre);
+  /* a marca nao conta: sem isto, tirar a ultima conta deixava o
+     arquivo vivo so com ela dentro */
+  const sobrou = Object.keys(cofre).filter((k) => k !== MARCA).length;
+  if (sobrou) await gravarCofre(cofre);
   else await unlink(arquivoRefresh()).catch(() => {});
 }
 
 export async function temRefresh(nick: string): Promise<boolean> {
-  return !!(await lerCofre())[nick.toLowerCase()];
+  const chave = nick.toLowerCase();
+  if (chave === MARCA) return false;   /* a marca nao e conta */
+  return !!(await lerCofre())[chave];
 }
 
 /* renova em silêncio na hora de jogar */
@@ -383,8 +507,10 @@ export async function renovar(nick: string): Promise<ContaMS | null> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
+      /* sem redirect_uri: o grant de refresh nao usa, e mandar o de
+         uma porta que ja morreu so daria erro */
       grant_type: 'refresh_token', client_id: CLIENT_ID, refresh_token: refresh,
-      scope: ESCOPO, redirect_uri: OAUTH_REDIRECT
+      scope: ESCOPO
     })
   });
   const j: any = await r.json();

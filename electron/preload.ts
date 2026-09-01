@@ -51,6 +51,9 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('xyven:title', token, alvo, titulo, texto),
     grupo: (token: string, alvo: string, grupo: string) => ipcRenderer.invoke('xyven:grupo', token, alvo, grupo),
     /* passa a escutar mudancas desta conta */
+    listarLoja: () => ipcRenderer.invoke('xyven:listarLoja'),
+    loja: (token: string, corpo: Record<string, unknown>) =>
+      ipcRenderer.invoke('xyven:loja', token, corpo),
     listarCargos: () => ipcRenderer.invoke('xyven:listarCargos'),
     cargo: (token: string, corpo: Record<string, unknown>) =>
       ipcRenderer.invoke('xyven:cargo', token, corpo),

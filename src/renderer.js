@@ -432,6 +432,82 @@ function renderMemory() {
    10. INTERAÇÕES
    ============================================================ */
 const open  = (el) => { el.hidden = false; };
+
+/* ------------------------------------------------------------
+   PERGUNTA E AVISO no tema
+
+   `confirm()` e `alert()` do sistema abrem uma janela do Windows no
+   meio do launcher: fonte errada, cor errada, contorno errado. Estas
+   duas devolvem promessa e usam o mesmo modal do resto.
+
+   Diferenca que importa: as nativas TRAVAM tudo ate a resposta. Estas
+   nao — por isso todo lugar que pergunta precisa de `await`, senao o
+   codigo segue como se a pessoa ja tivesse dito sim.
+   ------------------------------------------------------------ */
+function perguntar(texto, titulo) {
+  return new Promise((resolve) => {
+    const ov = $('#askOverlay');
+    if (!ov) return resolve(false);   /* sem modal: nao faz o destrutivo */
+
+    $('#askTitulo').textContent = titulo || 'Confirmar';
+    $('#askTexto').textContent = texto;
+    $('#askSim').hidden = false;
+    $('#askNao').textContent = 'NAO';
+
+    const fechar = (resposta) => {
+      ov.hidden = true;
+      document.removeEventListener('keydown', pelaTecla, true);
+      resolve(resposta);
+    };
+    /* Esc = nao: fechar sem responder nunca pode valer como sim.
+       Na fase de captura pra o Esc nao vazar e fechar outro modal. */
+    const pelaTecla = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); fechar(false); }
+      else if (e.key === 'Enter') { e.stopPropagation(); fechar(true); }
+    };
+
+    $('#askSim').onclick = () => fechar(true);
+    $('#askNao').onclick = () => fechar(false);
+    document.addEventListener('keydown', pelaTecla, true);
+
+    open(ov);
+    /* foco no NAO: a tecla mais facil de apertar sem ler nao pode ser
+       a que apaga alguma coisa */
+    setTimeout(() => $('#askNao').focus(), 30);
+  });
+}
+
+/* Aviso de uma opcao so. Reusa o mesmo modal: o SIM some e o NAO vira
+   ENTENDI, pra nao parecer que ha uma escolha que nao existe. */
+function avisar(texto, titulo) {
+  return new Promise((resolve) => {
+    const ov = $('#askOverlay');
+    if (!ov) return resolve();
+
+    $('#askTitulo').textContent = titulo || 'Aviso';
+    $('#askTexto').textContent = texto;
+    $('#askSim').hidden = true;
+    $('#askNao').textContent = 'ENTENDI';
+
+    const fechar = () => {
+      ov.hidden = true;
+      document.removeEventListener('keydown', pelaTecla, true);
+      /* devolve o modal ao estado de pergunta pro proximo uso */
+      $('#askSim').hidden = false;
+      $('#askNao').textContent = 'NAO';
+      resolve();
+    };
+    const pelaTecla = (e) => {
+      if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); fechar(); }
+    };
+
+    $('#askNao').onclick = fechar;
+    document.addEventListener('keydown', pelaTecla, true);
+
+    open(ov);
+    setTimeout(() => $('#askNao').focus(), 30);
+  });
+}
 const close = (el) => { el.hidden = true; };
 
 /* menu de conta */
@@ -465,12 +541,16 @@ $('#rail').addEventListener('click', (e) => {
 
 /* troca a tela mostrada em <main>. telas ainda sem conteúdo caem no início. */
 function showScreen(name) {
-  const known = ['home', 'news', 'profile'];
+  const known = ['home', 'news', 'profile', 'cosmetics'];
   const target = known.includes(name) ? name : 'home';
   $('#screen-home').hidden = target !== 'home';
   $('#screen-news').hidden = target !== 'news';
   $('#screen-profile').hidden = target !== 'profile';
+  $('#screen-cosmetics').hidden = target !== 'cosmetics';
   if (target === 'news') { renderFilters(); renderFeed(); }
+  /* redesenha ao entrar: o "VOCÊ TEM" depende da conta ativa, que
+     pode ter mudado desde a ultima vez que a tela foi montada */
+  if (target === 'cosmetics') { renderLoja(); carregarLoja(); }
   if (target === 'profile') {
     renderProfile();
     /* consulta a conta pra acertar braco e capa do boneco */
@@ -508,14 +588,15 @@ $('#removerConta').onclick = async () => {
   close($('#accountMenu'));
 
   if (CONFIG.accounts.length <= 1) {
-    alert('essa é a única conta do launcher. adicione outra antes de remover.');
+    await avisar('essa é a única conta do launcher. adicione outra antes de remover.');
     return;
   }
   if (jogoAberto || jogoAbrindo) {
-    alert('feche o Minecraft antes de remover a conta.');
+    await avisar('feche o Minecraft antes de remover a conta.');
     return;
   }
-  if (!confirm('remover "' + alvo + '" do launcher?\n\no tempo de jogo dessa conta é mantido, e você pode entrar de novo depois.')) return;
+  const vaiRemover = !!await perguntar('remover "' + alvo + '" do launcher?\n\no tempo de jogo dessa conta é mantido, e você pode entrar de novo depois.', 'Remover conta');
+  if (!vaiRemover) return;
 
   /* apaga o token da Microsoft guardado no disco, se houver */
   if (temApi() && window.api.auth) {
@@ -552,7 +633,7 @@ function msMostra(passo, { codigo, abrir, espera, erro } = {}) {
 $('#addOriginal').onclick = async () => {
   close($('#addOverlay'));
   if (!temApi() || !window.api.auth) {
-    alert('o login da Microsoft só funciona no app.');
+    await avisar('o login da Microsoft só funciona no app.');
     return;
   }
   open($('#msOverlay'));
@@ -1039,17 +1120,18 @@ async function tocar(servidor) {
     if (temApi()) window.api.mc.matar(state.dir);
     return;
   }
-  if (!temApi()) { alert('a inicialização só funciona no app; no navegador não há acesso ao disco.'); return; }
+  if (!temApi()) { await avisar('a inicialização só funciona no app; no navegador não há acesso ao disco.'); return; }
 
   const java = javaEmUso();
   if (!java || !java.path || java.path.startsWith('...')) {
-    alert('escolha um Java em Ajustes › Jogo antes de tocar.');
+    await avisar('escolha um Java em Ajustes › Jogo antes de tocar.');
     return;
   }
   const exigido = await window.api.java.exigido(state.version);
   if (java.maior && java.maior < exigido) {
-    if (!confirm('a fita ' + state.version + ' pede Java ' + exigido + ' e o escolhido é o ' + java.maior +
-                 '.\no jogo provavelmente não abre. tocar mesmo assim?')) return;
+    const seguir = await perguntar('a fita ' + state.version + ' pede Java ' + exigido + ' e o escolhido é o ' + java.maior +
+                 '.\no jogo provavelmente não abre. tocar mesmo assim?', 'Java diferente');
+    if (!seguir) return;
   }
 
   jogoAbrindo = true;
@@ -1591,7 +1673,8 @@ function daLinha(r) {
     date: pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear(),
     title: r.titulo,
     body: r.corpo || '',
-    img: r.imagem || ''
+    img: r.imagem || '',
+    secoes: Array.isArray(r.secoes) ? r.secoes : []
   };
 }
 
@@ -1623,12 +1706,12 @@ async function carregarPosts() {
 async function acaoPost(corpo) {
   const token = await tokenAtual();
   if (!token || !window.api.xyven || !window.api.xyven.post) {
-    alert('precisa de conta original logada — o mural fica no servidor.');
+    await avisar('precisa de conta original logada — o mural fica no servidor.');
     return false;
   }
   const r = await window.api.xyven.post(token, corpo).catch(() => null);
   if (!r || !r.ok) {
-    alert((r && r.erro) || 'nao consegui falar com a API.');
+    await avisar((r && r.erro) || 'não consegui falar com a API.');
     return false;
   }
   await carregarPosts();
@@ -1666,7 +1749,7 @@ function renderFeed() {
           <span class="post__meta">${esc(p.author)} · ${esc(p.date)}</span>
         </div>
         <h3 class="post__title" data-open-post="${p.id}">${esc(p.title)}</h3>
-        <p class="post__body post__body--clamp selectable">${esc(p.body).replace(/\n/g, '<br>')}</p>
+        <p class="post__body post__body--clamp selectable">${esc(semMarcacao(p.body)).replace(/\n/g, '<br>')}</p>
         <div class="post__actions">
           <button class="link-btn" data-open-post="${p.id}">ler tudo</button>
           <button class="link-btn perm perm--escrever" data-edit="${p.id}">editar</button>
@@ -1700,8 +1783,10 @@ $('#feed').addEventListener('click', (e) => {
     const id = Number(del.dataset.del);
     const p = posts.find(x => x.id === id);
     /* apagar e o unico sem volta, e agora vale pra todo mundo */
-    if (p && confirm('apagar "' + p.title + '"? isso vale pra todo mundo.')) {
-      acaoPost({ acao: 'apagar', id });
+    if (p) {
+      /* o ouvinte do feed nao e async: encadeia em vez de esperar */
+      perguntar('apagar "' + p.title + '"? isso vale pra todo mundo.', 'Apagar postagem')
+        .then((sim) => { if (sim) acaoPost({ acao: 'apagar', id }); });
     }
   }
 });
@@ -1720,6 +1805,56 @@ $('#seeAllNews').onclick = (e) => {
   showScreen('news');
 };
 
+/* ------------------------------------------------------------
+   SEÇÕES
+
+   Bloco de icone + titulo + texto. A mesma funcao serve a leitura da
+   postagem e ao modal do /update: fossem duas, uma ia divergir da
+   outra no primeiro ajuste.
+   ------------------------------------------------------------ */
+/* ------------------------------------------------------------
+   TEXTO FORMATADO
+
+     # titulo        maior
+     ## titulo       maior ainda
+     ### titulo      o maior
+     &c vermelho     as mesmas cores do /title
+
+   A marca de tamanho vale pra LINHA, e a de cor pra qualquer pedaco
+   dela. Reusa o pintarMinecraft: inventar uma segunda sintaxe de cor
+   so criaria duas coisas pra lembrar.
+   ------------------------------------------------------------ */
+function formatarTexto(txt) {
+  return String(txt || '').split('\n').map((linha) => {
+    const m = /^(#{1,3})\s*(.*)$/.exec(linha);
+    const classe = m ? ' t' + m[1].length : '';
+    /* pintarMinecraft ja escapa cada caractere: nada do que a pessoa
+       escreve chega aqui como HTML */
+    const dentro = pintarMinecraft(m ? m[2] : linha);
+    return '<div class="lin' + classe + '">' + dentro + '</div>';
+  }).join('');
+}
+
+/* Sem marca nenhuma, pro cartao do feed: la o texto e cortado em duas
+   linhas, e `### &eTITULO` cru apareceria no meio da previa. */
+function semMarcacao(txt) {
+  return String(txt || '')
+    .replace(/^#{1,3}\s*/gm, '')
+    .replace(/[&\u00a7]([0-9a-fk-or])/gi, '');
+}
+
+function htmlDasSecoes(secoes) {
+  if (!Array.isArray(secoes) || !secoes.length) return '';
+  return secoes.map((sc) => {
+    const ic = sc.icone
+      ? '<span class="sec__ic" style="background-image:url(\'' + esc(sc.icone) + '\')"></span>'
+      : '<span class="sec__ic"></span>';
+    return '<div class="sec">' + ic +
+      '<div><h4 class="sec__tit">' + esc(sc.titulo || '') + '</h4>' +
+      '<div class="sec__txt">' + formatarTexto(sc.texto || '') + '</div></div></div>';
+  }).join('');
+}
+
 /* leitura da postagem completa */
 let readingId = null;
 function openPost(id) {
@@ -1735,8 +1870,13 @@ function openPost(id) {
   /* limpa o src quando nao ha foto: sem isto o <img> guarda a da
      postagem anterior e pisca com ela ao abrir a proxima */
   ri.src = p.img || '';
+  $('#readSecs').className = 'secs mc-claro';
+  $('#readSecs').innerHTML = htmlDasSecoes(p.secoes);
   $('#readTitle').textContent = p.title;
-  $('#readBody').textContent = p.body;
+  /* mc-claro: o modal de leitura e papel, e as cores palidas do
+     Minecraft precisam escurecer pra continuarem legiveis */
+  $('#readBody').className = 'read__body selectable mc-claro';
+  $('#readBody').innerHTML = formatarTexto(p.body);
   open($('#readOverlay'));
 }
 $('#readEdit').onclick = () => { close($('#readOverlay')); openPostEditor(readingId); };
@@ -1751,6 +1891,9 @@ function openPostEditor(id) {
   $('#postTag').innerHTML = POST_TAGS.map(t => `<option ${p && p.tag === t ? 'selected' : ''}>${t}</option>`).join('');
   $('#postPin').checked = p ? !!p.pinned : false;
   $('#postImg').value = p ? (p.img || '') : '';
+  const cx = $('#secEditor');
+  cx.innerHTML = '';
+  ((p && p.secoes) || []).forEach((sc) => cx.appendChild(linhaDeSecao(sc)));
   previewImg();
   open($('#postOverlay'));
   setTimeout(() => $('#postTitle').focus(), 30);
@@ -1807,23 +1950,146 @@ $('#postImgFile').addEventListener('change', async (e) => {
 
     const token = await tokenAtual();
     if (!token || !window.api.xyven || !window.api.xyven.post) {
-      alert('precisa de conta original logada pra enviar imagem.');
+      await avisar('precisa de conta original logada pra enviar imagem.');
       return;
     }
     const r = await window.api.xyven.post(token, { acao: 'imagem', nome: arq.name, dados: b64 })
       .catch(() => null);
     if (!r || !r.ok) {
-      alert((r && r.erro) || 'não consegui enviar a imagem.');
+      await avisar((r && r.erro) || 'não consegui enviar a imagem.');
       return;
     }
     $('#postImg').value = r.dados.url;
     previewImg();
   } catch (err) {
-    alert((err && err.message) || 'não consegui enviar a imagem.');
+    await avisar((err && err.message) || 'não consegui enviar a imagem.');
   } finally {
     botao.disabled = false; botao.textContent = rotulo;
   }
 });
+
+/* ------------------------------------------------------------
+   editor de secoes
+
+   O estado vive no DOM, e nao num array a parte: com array eu teria
+   que sincronizar os dois a cada tecla, e e exatamente ai que some
+   texto sem ninguem entender por que.
+   ------------------------------------------------------------ */
+function linhaDeSecao(sc) {
+  const d = document.createElement('div');
+  d.className = 'secrow';
+  d.innerHTML =
+    '<div class="secrow__top">' +
+      '<input class="input sec-in-ic" placeholder="link do ícone (opcional)" spellcheck="false">' +
+      '<button type="button" class="btn sec-pick" style="padding:0 14px">ÍCONE</button>' +
+      '<button type="button" class="btn sec-del" style="padding:0 14px">TIRAR</button>' +
+    '</div>' +
+    '<input class="input sec-in-tit" placeholder="TÍTULO DA SEÇÃO" maxlength="60">' +
+    '<textarea class="input sec-in-txt" placeholder="o que mudou, em duas ou três linhas."></textarea>';
+  if (sc) {
+    d.querySelector('.sec-in-ic').value = sc.icone || '';
+    d.querySelector('.sec-in-tit').value = sc.titulo || '';
+    d.querySelector('.sec-in-txt').value = sc.texto || '';
+  }
+  return d;
+}
+
+function lerSecoes() {
+  return [...$('#secEditor').querySelectorAll('.secrow')].map((r) => ({
+    icone: r.querySelector('.sec-in-ic').value.trim(),
+    titulo: r.querySelector('.sec-in-tit').value.trim(),
+    texto: r.querySelector('.sec-in-txt').value.trim()
+  })).filter((x) => x.titulo || x.texto);
+}
+
+$('#secAdd').onclick = () => {
+  $('#secEditor').appendChild(linhaDeSecao(null));
+};
+
+$('#secEditor').addEventListener('click', async (e) => {
+  const linha = e.target.closest('.secrow');
+  if (!linha) return;
+
+  if (e.target.closest('.sec-del')) { linha.remove(); return; }
+  if (!e.target.closest('.sec-pick')) return;
+
+  /* o mesmo upload da imagem da postagem, so que pro icone */
+  const arq = await escolherArquivo();
+  if (!arq) return;
+  const botao = e.target.closest('.sec-pick');
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = '...';
+  const url = await enviarImagemPost(arq);
+  botao.disabled = false; botao.textContent = rotulo;
+  if (url) linha.querySelector('.sec-in-ic').value = url;
+});
+
+/* abre o seletor de arquivo e devolve o que a pessoa escolheu */
+function escolherArquivo() {
+  return new Promise((ok) => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/png,image/jpeg,image/gif,image/webp';
+    inp.onchange = () => ok(inp.files && inp.files[0]);
+    inp.click();
+  });
+}
+
+async function enviarImagemPost(arq) {
+  try {
+    const b64 = await new Promise((ok, falhou) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result).split(',')[1] || '');
+      fr.onerror = () => falhou(new Error('não consegui ler o arquivo.'));
+      fr.readAsDataURL(arq);
+    });
+    const token = await tokenAtual();
+    if (!token || !window.api.xyven) {
+      await avisar('precisa de conta original logada pra enviar imagem.');
+      return '';
+    }
+    const r = await window.api.xyven.post(token, { acao: 'imagem', nome: arq.name, dados: b64 })
+      .catch(() => null);
+    if (!r || !r.ok) { await avisar((r && r.erro) || 'não consegui enviar a imagem.'); return ''; }
+    return r.dados.url;
+  } catch (err) {
+    await avisar((err && err.message) || 'não consegui enviar a imagem.');
+    return '';
+  }
+}
+
+/* ------------------------------------------------------------
+   PREVIEW da postagem
+
+   Mostra o que o /update joga na tela de todo mundo, montado do que
+   esta no formulario AGORA — sem salvar e sem ir ao servidor.
+
+   Nao passa pelo mostrarAviso de proposito: aquele grava em
+   localStorage que o aviso foi visto, e um preview marcando recado
+   como lido faria a pessoa perder o proximo de verdade. */
+function previewPostagem() {
+  const titulo = $('#postTitle').value.trim() || '(sem título)';
+  const corpo = $('#postBody').value.trim();
+  const img = $('#postImg').value.trim();
+  const secoes = lerSecoes();
+
+  $('#avisoTitulo').innerHTML = pintarMinecraft(titulo);
+  $('#avisoTexto').innerHTML = '';
+
+  const caixa = $('#avisoPost');
+  const banner = img ? '<img class="aviso__banner" src="' + esc(img) + '" alt="">' : '';
+  const texto = corpo
+    ? '<div class="sec__txt" style="margin-bottom:4px">' + formatarTexto(corpo) + '</div>'
+    : '';
+  caixa.innerHTML = banner + texto + htmlDasSecoes(secoes);
+  caixa.hidden = !(banner || texto || secoes.length);
+
+  /* fecha e pronto: nada de marcar como visto */
+  $('#avisoFechar').onclick = () => close($('#avisoOverlay'));
+  open($('#avisoOverlay'));
+}
+
+$('#postPreview').onclick = previewPostagem;
 
 $('#newPostBtn').onclick = () => openPostEditor(null);
 
@@ -1843,7 +2109,8 @@ $('#postSave').onclick = async () => {
     corpo: body,
     tag: $('#postTag').value,
     fixado: $('#postPin').checked,
-    imagem: $('#postImg').value.trim()
+    imagem: $('#postImg').value.trim(),
+    secoes: lerSecoes()
   });
 
   botao.disabled = false; botao.textContent = rotulo;
@@ -1852,7 +2119,346 @@ $('#postSave').onclick = async () => {
   if (ok) close($('#postOverlay'));
 };
 
-/* boot do forum */
+/* ============================================================
+   10.c LOJA DE COSMÉTICOS
+
+   Card com a imagem EM CIMA e o texto embaixo — ao contrario do
+   mural, onde a foto vem depois do texto.
+
+   TOTAL nao e categoria: e o filtro "tudo", como o TODAS do mural.
+   Nao tem linha no banco, entao ninguem apaga sem querer.
+   ============================================================ */
+let lojaFiltro = 'TOTAL';
+let itemEditando = null;
+
+/* Recorte da frente da textura de capa (10x16 a partir de 1,1 numa
+   folha 64x32). O mesmo calculo do editor de skin — a textura crua
+   mostrada inteira nao parece capa nenhuma. */
+function arteDeCapa(url, escala) {
+  const e = escala || 6;
+  return 'background-image:url(' + url + ');' +
+    'background-size:' + (64 * e) + 'px ' + (32 * e) + 'px;' +
+    'background-position:' + (-1 * e) + 'px ' + (-1 * e) + 'px;' +
+    'width:' + (10 * e) + 'px;height:' + (16 * e) + 'px';
+}
+
+function renderFiltrosLoja() {
+  const alvos = ['TOTAL'].concat(CATEGORIAS.map((c) => c.nome));
+  const el = $('#lojaFiltros');
+  if (!el) return;
+  el.innerHTML = alvos.map((t) =>
+    '<button class="chip ' + (t === lojaFiltro ? 'is-active' : '') +
+    '" data-loja-filtro="' + esc(t) + '">' + esc(t) + '</button>').join('');
+}
+
+function renderLoja() {
+  renderFiltrosLoja();
+  const grade = $('#lojaGrade');
+  if (!grade) return;
+
+  /* Servidor fora: fala, e nao finge. O que aparece abaixo sao as
+     quatro capas que vem dentro do launcher — elas existem de
+     verdade, mas nao da pra criar nem editar nada sem o servidor. */
+  if (lojaFora) {
+    grade.innerHTML = '<div class="empty" style="grid-column:1/-1">' +
+      'a loja não respondeu: ' + esc(lojaFora) + '<br><br>' +
+      'abaixo estão só as capas que vêm dentro do launcher. ' +
+      'criar e editar precisam do servidor.</div>';
+  } else {
+    grade.innerHTML = '';
+  }
+
+  const cat = CATEGORIAS.find((c) => c.nome === lojaFiltro);
+  const lista = COSMETICOS.filter((c) => lojaFiltro === 'TOTAL' || (cat && c.categoria === cat.id));
+
+  if (!lista.length) {
+    grade.innerHTML += '<div class="empty" style="grid-column:1/-1">' +
+      (lojaFiltro === 'TOTAL' ? 'nenhum item ainda.' : 'nada em ' + esc(lojaFiltro) + '.') +
+      '</div>';
+    return;
+  }
+
+  const meus = capasDisponiveis().map((c) => c.id);
+
+  grade.innerHTML += lista.map((c) => {
+    const url = urlDoItem(c);
+    let arte;
+    if (!url) {
+      arte = '<span class="ph" style="width:100%;height:100%">SEM IMAGEM</span>';
+    } else if (ehCapa(c)) {
+      arte = '<span class="item__tex" style="' + arteDeCapa(url, 6) + '"></span>';
+    } else {
+      /* categoria que nao e capa: a imagem e arte, mostrada inteira */
+      arte = '<span style="width:100%;height:100%;background:url(' + esc(url) +
+             ') center/contain no-repeat"></span>';
+    }
+    const tem = meus.includes(c.id) ? '<span class="item__tem">VOCÊ TEM</span>' : '';
+    return '<div class="item">' +
+      '<div class="item__art">' + arte + '</div>' +
+      '<div class="item__corpo">' +
+        '<span class="item__nome">' + esc(c.nome) + '</span>' +
+        '<p class="item__desc">' + esc(c.descricao || '') + '</p>' +
+        '<div class="item__pe">' +
+          '<button class="link-btn" data-prev="' + esc(c.id) + '">preview</button>' +
+          '<button class="link-btn perm perm--loja" data-item-edit="' + esc(c.id) + '">editar</button>' +
+          '<button class="link-btn link-btn--danger perm perm--loja" data-item-del="' + esc(c.id) + '">apagar</button>' +
+          tem +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+$('#lojaFiltros').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-loja-filtro]');
+  if (!b) return;
+  lojaFiltro = b.dataset.lojaFiltro;
+  renderLoja();
+});
+
+/* ------------------------------------------------------------
+   preview: veste na SUA skin
+
+   So capa da pra vestir — o skinview3d renderiza skin e capa, e mais
+   nada. Pras outras categorias a arte aparece ao lado, com o aviso de
+   que ali e ilustracao e nao o item no corpo.
+   ------------------------------------------------------------ */
+let visorPreview = null;
+
+function abrirPreview(id) {
+  const c = COSMETICOS.find((x) => x.id === id);
+  if (!c) return;
+  const url = urlDoItem(c);
+
+  $('#previewTitulo').textContent = c.nome;
+  $('#prevDesc').textContent = c.descricao || 'sem descrição.';
+
+  const arte = $('#prevArte');
+  arte.hidden = ehCapa(c) || !url;
+  arte.style.backgroundImage = (!ehCapa(c) && url) ? "url('" + url + "')" : '';
+
+  $('#prevNota').textContent = ehCapa(c)
+    ? 'arraste pra girar · roda do mouse aproxima'
+    : 'este tipo de item não é desenhado no corpo — o mod do jogo é que mostra.';
+
+  open($('#previewOverlay'));
+
+  /* o visor so nasce quando o modal ja tem tamanho: criado escondido,
+     ele mediria zero e a camera ficaria fora de enquadramento */
+  setTimeout(() => {
+    visorPreview = visorPreview || criarVisor($('#prevBody'));
+    if (!visorPreview) return;
+    vestir(visorPreview, SKIN_TEX(profile.skin), ehCapa(c) ? url : '', null);
+  }, 40);
+}
+
+/* ------------------------------------------------------------
+   editor de item
+   ------------------------------------------------------------ */
+/* A medida MUDA com a categoria, e por isso nao dá pra copiar o aviso
+   da postagem: la e 1400x600 porque o card e 7:3. Capa e outra coisa —
+   e a textura do Minecraft, 64x32, e o launcher recorta a frente dela
+   pra fazer o card e veste ela no boneco. */
+function previewItemImg() {
+  const url = $('#itemImg').value.trim();
+  const prev = $('#itemImgPrev');
+  const capa = $('#itemCat').value === 'capas';
+
+  prev.hidden = false;
+  prev.classList.toggle('postimg--vazio', !url);
+  prev.style.backgroundImage = url ? "url('" + url + "')" : '';
+
+  if (url) {
+    prev.innerHTML = '';
+    /* capa: mostra o recorte da frente, que e o que vai virar o card */
+    prev.classList.toggle('postimg--capa', capa);
+    prev.style.cssText = capa
+      ? arteDeCapa(url, 5) + ';border:2px solid var(--ink);margin:0 auto'
+      : "background-image:url('" + url + "')";
+    return;
+  }
+
+  prev.classList.remove('postimg--capa');
+  prev.style.cssText = '';
+  prev.innerHTML = capa
+    ? '<b>64 x 32</b>' +
+      '<span>a textura de capa do Minecraft, do mesmo jeito que o jogo usa</span>' +
+      '<span>o launcher recorta a frente pro card e veste ela no boneco</span>'
+    : '<b>quadrada</b>' +
+      '<span>o card é quadrado e mostra a imagem inteira, sem cortar</span>' +
+      '<span>png, jpg, gif ou webp &middot; até 2 MB</span>';
+}
+
+function abrirEditorItem(id) {
+  itemEditando = id || null;
+  const c = id ? COSMETICOS.find((x) => x.id === id) : null;
+
+  $('#itemModalTitulo').textContent = c ? 'Editar item' : 'Novo item';
+  $('#itemId').value = c ? c.id : '';
+  $('#itemId').disabled = !!c;      /* id e chave: mudar seria outro item */
+  $('#itemNome').value = c ? c.nome : '';
+  $('#itemDesc').value = c ? (c.descricao || '') : '';
+  $('#itemImg').value = c ? (c.imagem || '') : '';
+  $('#itemCat').innerHTML = CATEGORIAS.map((x) =>
+    '<option value="' + esc(x.id) + '"' +
+    (c && c.categoria === x.id ? ' selected' : '') + '>' + esc(x.nome) + '</option>').join('');
+  previewItemImg();
+  open($('#itemOverlay'));
+  setTimeout(() => { if (!c) $('#itemId').focus(); }, 30);
+}
+
+$('#itemImg').addEventListener('input', previewItemImg);
+/* trocar a categoria troca a medida pedida */
+$('#itemCat').addEventListener('change', previewItemImg);
+$('#itemImgClear').onclick = () => { $('#itemImg').value = ''; previewItemImg(); };
+$('#itemImgPick').onclick = () => $('#itemImgFile').click();
+
+$('#itemImgFile').addEventListener('change', async (e) => {
+  const arq = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!arq) return;
+
+  const botao = $('#itemImgPick');
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'ENVIANDO...';
+  try {
+    const b64 = await new Promise((ok, falhou) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result).split(',')[1] || '');
+      fr.onerror = () => falhou(new Error('não consegui ler o arquivo.'));
+      fr.readAsDataURL(arq);
+    });
+    const token = await tokenAtual();
+    if (!token || !window.api.xyven) {
+      await avisar('precisa de conta original logada pra enviar imagem.');
+      return;
+    }
+    const r = await window.api.xyven.loja(token, { acao: 'imagem', nome: arq.name, dados: b64 })
+      .catch(() => null);
+    if (!r || !r.ok) { await avisar((r && r.erro) || 'não consegui enviar a imagem.'); return; }
+    $('#itemImg').value = r.dados.url;
+    previewItemImg();
+  } catch (err) {
+    await avisar((err && err.message) || 'não consegui enviar a imagem.');
+  } finally {
+    botao.disabled = false; botao.textContent = rotulo;
+  }
+});
+
+$('#novoItemBtn').onclick = () => abrirEditorItem(null);
+
+/* ------------------------------------------------------------
+   categorias
+
+   TOTAL nao entra aqui: e o filtro "tudo", nao tem linha no banco.
+   ------------------------------------------------------------ */
+$('#novaCatBtn').onclick = () => {
+  $('#catId').value = '';
+  $('#catNome').value = '';
+  open($('#catOverlay'));
+  setTimeout(() => $('#catId').focus(), 30);
+};
+
+$('#catSalvar').onclick = async () => {
+  const id = $('#catId').value.trim().toLowerCase();
+  if (!id) { $('#catId').focus(); return; }
+
+  const token = await tokenAtual();
+  if (!token || !window.api.xyven) {
+    return avisar('precisa de conta original logada — a loja fica no servidor.');
+  }
+
+  const botao = $('#catSalvar');
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'ENVIANDO...';
+
+  const r = await window.api.xyven.loja(token, {
+    acao: 'categoria', modo: 'criar', id,
+    nome: $('#catNome').value.trim() || id.toUpperCase()
+  }).catch(() => null);
+
+  botao.disabled = false; botao.textContent = rotulo;
+  if (!r || !r.ok) return avisar((r && r.erro) || 'não consegui falar com a API.');
+
+  close($('#catOverlay'));
+  lojaFiltro = (r.dados.categoria && r.dados.categoria.nome) || lojaFiltro;
+  await carregarLoja();
+};
+
+$('#apagarCatBtn').onclick = async () => {
+  const cat = CATEGORIAS.find((c) => c.nome === lojaFiltro);
+  if (!cat) return avisar('escolha uma categoria antes. TOTAL não é categoria.');
+
+  if (!await perguntar('apagar a categoria "' + cat.nome + '"?', 'Apagar categoria')) return;
+
+  const token = await tokenAtual();
+  if (!token || !window.api.xyven) {
+    return avisar('precisa de conta original logada — a loja fica no servidor.');
+  }
+  const r = await window.api.xyven.loja(token, { acao: 'categoria', modo: 'apagar', id: cat.id })
+    .catch(() => null);
+  if (!r || !r.ok) return avisar((r && r.erro) || 'não consegui falar com a API.');
+
+  lojaFiltro = 'TOTAL';
+  await carregarLoja();
+};
+
+$('#itemSalvar').onclick = async () => {
+  const id = $('#itemId').value.trim().toLowerCase();
+  if (!id) { $('#itemId').focus(); return; }
+
+  const token = await tokenAtual();
+  if (!token || !window.api.xyven) {
+    return avisar('precisa de conta original logada — a loja fica no servidor.');
+  }
+
+  const botao = $('#itemSalvar');
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'ENVIANDO...';
+
+  const r = await window.api.xyven.loja(token, {
+    acao: 'cosmetico',
+    modo: itemEditando ? 'editar' : 'criar',
+    id,
+    nome: $('#itemNome').value.trim() || id.toUpperCase(),
+    descricao: $('#itemDesc').value.trim(),
+    categoria: $('#itemCat').value,
+    imagem: $('#itemImg').value.trim()
+  }).catch(() => null);
+
+  botao.disabled = false; botao.textContent = rotulo;
+  if (!r || !r.ok) return avisar((r && r.erro) || 'não consegui falar com a API.');
+
+  close($('#itemOverlay'));
+  await carregarLoja();
+};
+
+$('#lojaGrade').addEventListener('click', async (e) => {
+  const pv = e.target.closest('[data-prev]');
+  if (pv) return abrirPreview(pv.dataset.prev);
+
+  const ed = e.target.closest('[data-item-edit]');
+  if (ed) return abrirEditorItem(ed.dataset.itemEdit);
+
+  const del = e.target.closest('[data-item-del]');
+  if (!del) return;
+  const id = del.dataset.itemDel;
+  const c = COSMETICOS.find((x) => x.id === id);
+  if (!await perguntar('apagar "' + (c ? c.nome : id) + '"? quem tem perde na hora.',
+                       'Apagar item')) return;
+
+  const token = await tokenAtual();
+  if (!token || !window.api.xyven) {
+    return avisar('precisa de conta original logada — a loja fica no servidor.');
+  }
+  const r = await window.api.xyven.loja(token, { acao: 'cosmetico', modo: 'apagar', id })
+    .catch(() => null);
+  if (!r || !r.ok) return avisar((r && r.erro) || 'não consegui falar com a API.');
+  await carregarLoja();
+  sincronizarConta();
+});
+
+/* boot do forum
 paintSkins();
 renderFilters(); renderFeed(); renderNews();
 carregarPosts();
@@ -1865,6 +2471,7 @@ if (temApi() && window.api.xyven && window.api.xyven.aoMudarPosts) {
     console.log('[xyven] mural ou cargos mudaram; recarregando');
     carregarPosts();
     carregarCargos();
+    carregarLoja();
   });
 }
 
@@ -2230,7 +2837,7 @@ $('#newServerNome').addEventListener('keydown', (e) => { if (e.key === 'Enter') 
    Botão direito copia o IP, pra quem só quer o endereço. */
 document.addEventListener('click', (e) => {
   /* o × fica dentro do card: sem sair aqui, remover abriria o jogo junto */
-  const x = e.target.closest && e.target.closest('.server__x');
+  const x = e.target.closest && e.target.closest('.srv__x');
   if (x) {
     e.stopPropagation();
     servidoresMeus = servidoresMeus.filter((s) => s.ip !== x.dataset.rm);
@@ -2238,7 +2845,9 @@ document.addEventListener('click', (e) => {
     atualizarServidores();
     return;
   }
-  const b = e.target.closest && e.target.closest('.server');
+  /* `.srv` e nao `.server`: a segunda ainda existe, e a lista de
+     "servidores mais tocados" do perfil. Clicar la nao abre jogo. */
+  const b = e.target.closest && e.target.closest('.srv');
   if (!b) return;
   if (jogoAberto) { avisarServidor('o Minecraft já está aberto. feche antes de entrar em outro servidor.'); return; }
   if (jogoAbrindo) return;
@@ -2247,7 +2856,7 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('contextmenu', async (e) => {
-  const b = e.target.closest && e.target.closest('.server');
+  const b = e.target.closest && e.target.closest('.srv');
   if (!b) return;
   e.preventDefault();
   avisarServidor((await copiar(b.dataset.ip))
@@ -2285,12 +2894,79 @@ setInterval(atualizarServidores, 60000);
    completo depende do login Microsoft (api.minecraftservices.com). */
 /* capas do proprio launcher: nao dependem da Mojang, entao valem
    tambem para conta offline. ARTE PROVISORIA (design pendente). */
-const CAPAS_XYVEN = [
+/* As quatro que vem dentro do launcher. Continuam aqui porque o .png
+   delas e arquivo local: a linha no banco so declara que existem, sem
+   imagem, pra nao obrigar a reenviar o que ja esta empacotado. */
+const CAPAS_LOCAIS = [
   { id: 'caveira',   name: 'CAVEIRA',   arquivo: 'caveira.png' },
   { id: 'moonlight', name: 'MOONLIGHT', arquivo: 'moonlight.png' },
   { id: 'broken',    name: 'BROKEN',    arquivo: 'broken.png' },
   { id: 'enderman',  name: 'ENDERMAN',  arquivo: 'enderman.png' }
 ].map((c) => Object.assign({}, c, { url: 'capes/' + c.arquivo, origem: 'launcher' }));
+
+/* Catalogo da loja. Comeca com as locais e e substituido pelo que o
+   servidor manda — sem rede, o editor de skin continua funcionando
+   com as quatro de sempre em vez de abrir vazio. */
+let CATEGORIAS = [{ id: 'capas', nome: 'CAPAS', ordem: 1 }];
+let COSMETICOS = CAPAS_LOCAIS.map((c) => ({
+  id: c.id, nome: c.name, descricao: '', imagem: null, categoria: 'capas'
+}));
+
+/* A URL do .png que veste. Item da loja traz a sua; as quatro locais
+   nao tem imagem no banco e caem no arquivo empacotado. */
+function urlDoItem(c) {
+  if (!c) return '';
+  if (c.imagem) return c.imagem;
+  const local = CAPAS_LOCAIS.find((x) => x.id === c.id);
+  return local ? local.url : '';
+}
+
+const ehCapa = (c) => !!c && c.categoria === 'capas';
+
+/* As capas no formato que o editor de skin ja espera. `let` e nao
+   `const`: e refeita quando o catalogo chega do servidor, e os cinco
+   lugares que leem isto pegam o valor na hora da chamada. */
+let CAPAS_XYVEN = CAPAS_LOCAIS.slice();
+
+function refazerCapas() {
+  CAPAS_XYVEN = COSMETICOS.filter(ehCapa).map((c) => ({
+    id: c.id, name: c.nome, url: urlDoItem(c), origem: 'launcher'
+  }));
+}
+
+/* Null = ainda nao perguntei. String = o servidor recusou, e a tela
+   precisa DIZER isso: o plano B local faz a loja parecer viva, e sem
+   este aviso a pessoa so descobre que nada esta la na hora de salvar. */
+let lojaFora = null;
+
+let buscandoLoja = false;
+async function carregarLoja() {
+  if (buscandoLoja) return;
+  if (!temApi() || !window.api.xyven || !window.api.xyven.listarLoja) return;
+  buscandoLoja = true;
+  try {
+    const r = await window.api.xyven.listarLoja();
+    if (r && r.ok) {
+      lojaFora = '';
+      if ((r.dados.categorias || []).length) CATEGORIAS = r.dados.categorias;
+      if ((r.dados.cosmeticos || []).length) COSMETICOS = r.dados.cosmeticos;
+      refazerCapas();
+      renderLoja();
+      /* o editor de skin lista capas: se estiver aberto, redesenha */
+      if ($('#skinOverlay') && !$('#skinOverlay').hidden) renderSkinEditor();
+    } else if (r && !r.ok) {
+      lojaFora = r.erro || 'a loja não respondeu.';
+      console.log('[xyven] loja: ' + r.erro);
+      renderLoja();
+    }
+  } catch (e) {
+    lojaFora = (e && e.message) || 'a loja não respondeu.';
+    console.log('[xyven] loja falhou: ' + (e && e.message));
+    renderLoja();
+  } finally {
+    buscandoLoja = false;
+  }
+}
 
 /* declarado aqui em cima, e nao junto de sincronizarConta: capasDisponiveis()
    roda no primeiro desenho da tela, antes daquele bloco. um let depois do uso
@@ -2869,6 +3545,25 @@ function mostrarAviso(aviso) {
 
   $('#avisoTitulo').innerHTML = pintarMinecraft(aviso.titulo);
   $('#avisoTexto').innerHTML = pintarMinecraft(aviso.texto || '');
+
+  /* Aviso do /update carrega a postagem inteira: banner e seções.
+     O do /title nao tem `post` e cai no caminho simples de sempre. */
+  const caixa = $('#avisoPost');
+  const post = aviso.post;
+  if (post) {
+    const banner = post.imagem
+      ? '<img class="aviso__banner" src="' + esc(post.imagem) + '" alt="">'
+      : '';
+    const corpo = post.corpo
+      ? '<div class="sec__txt" style="margin-bottom:4px">' + formatarTexto(post.corpo) + '</div>'
+      : '';
+    caixa.innerHTML = banner + corpo + htmlDasSecoes(post.secoes);
+    caixa.hidden = false;
+  } else {
+    caixa.innerHTML = '';
+    caixa.hidden = true;
+  }
+
   open($('#avisoOverlay'));
 
   /* so marca como visto ao FECHAR: se a pessoa matar o launcher
@@ -3256,6 +3951,39 @@ const COMANDOS = [
     }
   },
   {
+    nome: 'update', uso: '/update <id da postagem>', ajuda: 'mostra a postagem pra todo mundo',
+    roda: async (a) => {
+      const id = Number(a[0]);
+      if (!id) {
+        termErro('uso: /update <id da postagem>');
+        return termDim('o id de cada postagem sai no /posts');
+      }
+
+      const token = await tokenAtual();
+      if (!token || !window.api.xyven) {
+        return termErro('precisa de conta original logada — isso vai pro servidor.');
+      }
+      const r = await window.api.xyven.post(token, { acao: 'anunciar', id }).catch(() => null);
+      if (!r || !r.ok) return termErro((r && r.erro) || 'não consegui falar com a API.');
+
+      termOk('"' + r.dados.titulo + '" foi pra todo mundo.');
+      termDim('quem está com o launcher aberto vê na hora; o resto, ao abrir.');
+      sincronizarConta();
+    }
+  },
+  {
+    nome: 'posts', uso: '/posts', ajuda: 'lista as postagens com o id',
+    roda: () => {
+      if (!posts.length) return termDim('nenhuma postagem ainda.');
+      posts.forEach((p) => {
+        const marcas = (p.pinned ? 'fixada ' : '') + (p.featured ? 'início ' : '') +
+                       ((p.secoes || []).length ? (p.secoes.length + ' seções') : '');
+        termOk('  #' + String(p.id).padEnd(6) + p.title.slice(0, 40).padEnd(42) + marcas);
+      });
+      termDim(posts.length + ' postagens   ·   /update <id> manda pra todo mundo');
+    }
+  },
+  {
     nome: 'title', uso: '/title <nick[, nick...]> <título> | <descrição>',
     ajuda: 'recado pra uma ou várias pessoas',
     roda: async (a) => {
@@ -3489,7 +4217,7 @@ const COMANDOS = [
       if (sub === 'delete') {
         if (!arg[0]) return termErro('uso: /cargo delete <id>');
         const id = String(arg[0]).toLowerCase();
-        if (!confirm('apagar o cargo "' + id + '"? quem tem perde na hora.')) return;
+        if (!await perguntar('apagar o cargo "' + id + '"? quem tem perde na hora.', 'Apagar cargo')) return;
 
         const token = await tokenAtual();
         if (!token || !window.api.xyven) {
@@ -3822,3 +4550,4 @@ if (temApi() && window.api.xyven && window.api.xyven.aoMudar) {
    erro virava promessa rejeitada: o app abria com "Cannot access 'Ns'
    before initialization" e nada dizia de onde vinha. */
 carregarCargos();
+carregarLoja();

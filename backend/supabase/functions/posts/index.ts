@@ -21,7 +21,11 @@ const TAGS = ['ATUALIZAÇÃO', 'COMUNIDADE', 'EVENTO', 'CORREÇÃO'];
 const LIMITE_TITULO = 120;
 const LIMITE_CORPO = 8000;
 
-const COLUNAS = 'id, titulo, corpo, tag, fixado, destaque, imagem, autor_nick, criado_em, editado_em';
+const COLUNAS = 'id, titulo, corpo, tag, fixado, destaque, imagem, secoes, autor_nick, criado_em, editado_em';
+
+const LIMITE_SECOES = 12;
+const LIMITE_SEC_TITULO = 60;
+const LIMITE_SEC_TEXTO = 600;
 
 /* Bucket publico: a imagem de uma postagem e feita pra ser vista,
    e URL assinada venceria e deixaria post antigo sem foto. */
@@ -62,6 +66,9 @@ Deno.serve(async (req) => {
     criar: 'posts.escrever',
     editar: 'posts.escrever',
     imagem: 'posts.escrever',
+    /* anunciar joga na tela de TODO MUNDO: pede o mesmo que fixar,
+       que e a permissao de dar destaque */
+    anunciar: 'posts.fixar',
     fixar: 'posts.fixar',
     destaque: 'posts.fixar',
     apagar: 'posts.apagar'
@@ -81,12 +88,39 @@ Deno.serve(async (req) => {
     if (texto.length > LIMITE_CORPO) return erro('texto passa de ' + LIMITE_CORPO + ' caracteres.');
     if (!TAGS.includes(tag)) return erro('tag "' + tag + '" não existe.');
 
+    /* Secoes: lista de {icone, titulo, texto}. Undefined nao mexe;
+       lista vazia limpa. Recusa em bloco se qualquer uma estiver
+       torta — meia postagem publicada e pior que nenhuma. */
+    let secoes: unknown = undefined;
+    if (corpo?.secoes !== undefined) {
+      if (!Array.isArray(corpo.secoes)) return erro('secoes tem que ser uma lista.');
+      if (corpo.secoes.length > LIMITE_SECOES) {
+        return erro('no máximo ' + LIMITE_SECOES + ' seções.');
+      }
+      const limpas = [];
+      for (const bruta of corpo.secoes) {
+        const t = String(bruta?.titulo || '').trim();
+        const x = String(bruta?.texto || '').trim();
+        const ic = String(bruta?.icone || '').trim();
+        if (!t && !x) continue;                 /* seção em branco: descarta */
+        if (t.length > LIMITE_SEC_TITULO) {
+          return erro('título de seção passa de ' + LIMITE_SEC_TITULO + ' caracteres.');
+        }
+        if (x.length > LIMITE_SEC_TEXTO) {
+          return erro('texto de seção passa de ' + LIMITE_SEC_TEXTO + ' caracteres.');
+        }
+        limpas.push({ icone: ic, titulo: t, texto: x });
+      }
+      secoes = limpas;
+    }
+
     /* string vazia = tirar a imagem; undefined = nao mexer nela */
     const img = corpo?.imagem;
     const campos: Record<string, unknown> = {
       titulo, corpo: texto, tag, fixado: corpo?.fixado === true
     };
     if (typeof img === 'string') campos.imagem = img.trim() || null;
+    if (secoes !== undefined) campos.secoes = secoes;
 
     if (acao === 'criar') {
       const { data, error } = await sb
@@ -133,6 +167,36 @@ Deno.serve(async (req) => {
     const { error } = await sb.from('postagens').delete().eq('id', id);
     if (error) return erro(error.message, 500);
     return json({ ok: true, id });
+  }
+
+  /* ---- /update: manda esta postagem pra TODO MUNDO ----
+
+     Vira uma linha em `avisos` com `alvo` nulo, que e o que significa
+     "todos". O launcher ja sabe mostrar aviso uma vez so e marcar
+     como visto — reusar isso e melhor que inventar um segundo
+     caminho que teria os mesmos problemas de novo. */
+  if (acao === 'anunciar') {
+    const id = Number(corpo?.id);
+    if (!id) return erro('mande o id da postagem.');
+
+    const { data: post } = await sb
+      .from('postagens').select('id, titulo').eq('id', id).maybeSingle();
+    if (!post) return erro('não existe a postagem #' + id + '.', 404);
+
+    const { data, error } = await sb
+      .from('avisos')
+      .insert({
+        titulo: post.titulo,
+        texto: '',
+        alvo: null,                 /* nulo = todo mundo */
+        postagem_id: post.id,
+        por_uuid: quem.uuid
+      })
+      .select('id')
+      .single();
+    if (error) return erro(error.message, 500);
+
+    return json({ ok: true, aviso: data.id, postagem: post.id, titulo: post.titulo });
   }
 
   /* ---- upload da imagem de uma postagem ----

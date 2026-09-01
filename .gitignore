@@ -48,7 +48,10 @@ PROMPT-DISCORD-RPC.md
 PROMPT-BACKEND-SUPABASE.md
 
 # artefatos locais do CLI do Supabase e do Deno
-backend/supabase/.temp/
+# cache do CLI do Supabase: guarda so qual projeto esta linkado.
+# Em qualquer lugar, porque ele cria a pasta a partir de onde o
+# comando roda — ja apareceu uma na raiz.
+**/supabase/.temp/
 deno.lock
 
 # pasta criada por engano quando um caminho perdeu as barras

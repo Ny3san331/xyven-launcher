@@ -111,5 +111,22 @@ export const listarCargos = () =>
 export const cargo = (token: string, corpo: Record<string, unknown>) =>
   chamar<{ cargo?: Cargo; id?: string; tirados?: number }>('cargo', token, corpo);
 
+export type Categoria = { id: string; nome: string; ordem: number };
+export type Cosmetico = {
+  id: string; nome: string; descricao: string;
+  imagem: string | null; categoria: string; criado_em: string;
+};
+
+/* Leitura publica: a loja e pra ser vista, inclusive por quem nao tem
+   conta original. */
+export const listarLoja = () =>
+  chamar<{ categorias: Categoria[]; cosmeticos: Cosmetico[] }>('loja', 'sem-token', { acao: 'listar' });
+
+export const loja = (token: string, corpo: Record<string, unknown>) =>
+  chamar<{
+    cosmetico?: Cosmetico; categoria?: Categoria;
+    id?: string; url?: string; tirados?: number;
+  }>('loja', token, corpo);
+
 export const grupo = (token: string, alvo: string, grupo: string) =>
   chamar<{ nick: string; grupo: string }>('grupo', token, { alvo, grupo });

@@ -158,6 +158,9 @@ button,input{font:inherit;color:inherit}
 .btn:active{box-shadow:0 0 0 var(--ink);transform:translate(4px,4px)}
 .btn--pro{background:var(--mustard)}
 .btn--teal{background:var(--teal);color:var(--paper)}
+/* `--red` e o token do destrutivo. Aqui ele veste o NAO a pedido:
+   verde aceita, vermelho recusa. */
+.btn--red{background:var(--red);color:var(--paper)}
 .btn--icon{width:42px;padding:0}
 .btn--play{
   height:62px;padding:0 30px;background:var(--salmon);
@@ -366,6 +369,12 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
    ============================================================ */
 [hidden]{display:none!important}
 .overlay{position:fixed;inset:0;z-index:30;background:rgba(51,38,28,.55);display:grid;place-items:center;padding:34px}
+/* Estes dois INTERROMPEM o que estiver aberto, entao ficam por cima.
+   Sem isto quem decidia era a ordem no HTML, e o preview da postagem
+   abria atras do proprio editor que o chamou. */
+#avisoOverlay{z-index:40}
+/* o mais alto: a pergunta pode vir de dentro de qualquer modal */
+#askOverlay{z-index:50}
 .modal{background:var(--paper);border:var(--bw) solid var(--ink);box-shadow:12px 12px 0 var(--ink);animation:tapein .16s ease-out;max-width:100%;max-height:100%}
 @keyframes tapein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .modal__head{display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:var(--bw) solid var(--ink)}
@@ -676,11 +685,91 @@ main{flex:1;min-width:0;overflow-y:auto;padding:26px 30px 46px}
    Antes era body[data-group="dev"]: quem nao fosse dev nao via
    nada, e quem fosse via tudo. Agora cada trava tem a sua.
    `~=` casa uma palavra dentro da lista separada por espaco. */
+/* ------------ TEXTO FORMATADO ------------
+   # maior, ## maior ainda, ### o maior. Ao contrario do markdown,
+   onde mais # significa menor — aqui segue o que se le: mais
+   marca, mais destaque.
+   Fica em Space Mono e nao em Alfa Slab One: a de titulo so tem
+   peso 400 e some quando o texto e curto e colorido. */
+.lin{min-height:1px}
+.lin:empty{height:.7em}
+.t1{font-size:15px;font-weight:700;letter-spacing:.02em}
+.t2{font-size:19px;font-weight:700;letter-spacing:.01em;line-height:1.4}
+.t3{font-size:24px;font-weight:700;line-height:1.35}
+
+/* As 16 cores do Minecraft foram feitas pra fundo escuro. Onde o
+   fundo e o papel do tema, as palidas somem — branco em #f4e7ca
+   e invisivel. Aqui elas escurecem mantendo o tom, pra `&e` ainda
+   ler como amarelo em vez de virar cinza. */
+.mc-claro .mc-f{color:#5a4a38}
+.mc-claro .mc-e{color:#a8790c}
+.mc-claro .mc-6{color:#b06a00}
+.mc-claro .mc-7{color:#6b6b6b}
+.mc-claro .mc-a{color:#2c8f2c}
+.mc-claro .mc-b{color:#1f8c8c}
+.mc-claro .mc-d{color:#b939b9}
+.mc-claro .mc-9{color:#3b3bd6}
+
+/* ------------ SEÇÕES DA POSTAGEM ------------ */
+.secs{display:flex;flex-direction:column;gap:0}
+.secs:empty{display:none}
+/* tracejado separando, a mesma linguagem da lista de servidores
+   do perfil — nao inventa divisoria nova */
+.sec{display:grid;grid-template-columns:64px 1fr;gap:14px;padding:16px 0;
+  border-top:2px dashed #cbb28a}
+.sec__ic{width:64px;height:64px;border:2px solid var(--ink);background:var(--sand-dark)
+  center/contain no-repeat;image-rendering:pixelated}
+.sec__tit{font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--salmon);
+  margin:0 0 6px}
+.sec__txt{margin:0;font-size:12px;line-height:1.75;white-space:pre-wrap}
+
+/* editor: uma linha por secao */
+.seced{display:flex;flex-direction:column;gap:12px}
+.secrow{border:2px solid var(--ink);background:var(--sand);padding:12px;
+  display:flex;flex-direction:column;gap:8px}
+.secrow__top{display:flex;gap:10px}
+.secrow__top .input{flex:1}
+.secrow textarea{min-height:64px}
+
+/* o /update dentro do modal de aviso */
+.aviso__post{padding:0 20px 18px;background:var(--ink);color:var(--paper);
+  max-height:46vh;overflow-y:auto}
+.aviso__post .sec{border-top-color:#4a3a2b}
+.aviso__post .sec__txt{color:var(--paper)}
+.aviso__banner{width:100%;height:auto;display:block;border:2px solid #4a3a2b;
+  margin-bottom:14px}
+
+/* ------------ LOJA ------------ */
+.loja{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+/* imagem em cima, texto embaixo — ao contrario do card do mural */
+.item{border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:var(--shadow);
+  display:flex;flex-direction:column;text-align:left;color:var(--ink);padding:0;overflow:hidden}
+.item__art{aspect-ratio:1;border-bottom:var(--bw) solid var(--ink);background:var(--sand-dark);
+  display:grid;place-items:center;overflow:hidden}
+/* capa: recorte da frente da textura, o mesmo do editor de skin */
+.item__tex{image-rendering:pixelated;background-repeat:no-repeat}
+.item__corpo{padding:12px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+.item__nome{font-size:12px;font-weight:700;letter-spacing:.06em}
+.item__desc{font-size:10.5px;color:var(--muted);line-height:1.6;margin:0;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.item__pe{display:flex;gap:8px;align-items:center;margin-top:auto;padding-top:8px}
+.item__tem{font-size:9px;font-weight:700;letter-spacing:.14em;padding:3px 7px;
+  border:2px solid var(--ink);background:var(--teal);color:var(--paper)}
+
+/* ------------ PREVIEW ------------ */
+.prev{display:grid;grid-template-columns:240px 1fr;gap:0;height:min(420px,56vh);min-height:0}
+.prev__palco{border-right:var(--bw) solid var(--ink);background:var(--sand-dark);
+  position:relative;overflow:hidden;cursor:grab;touch-action:none}
+.prev__palco:active{cursor:grabbing}
+.prev__lado{padding:18px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+.prev__desc{margin:0;font-size:12px;line-height:1.7}
+
 .dev-only,.perm{display:none}
 body[data-perms~="terminal"] .dev-only{display:flex}
 body[data-perms~="posts.escrever"] .perm--escrever{display:flex}
 body[data-perms~="posts.fixar"] .perm--fixar{display:flex}
 body[data-perms~="posts.apagar"] .perm--apagar{display:flex}
+body[data-perms~="loja"] .perm--loja{display:flex}
 /* o coringa abre tudo de uma vez */
 body[data-perms~="*"] .dev-only,body[data-perms~="*"] .perm{display:flex}
 .rail__btn--dev{background:var(--teal);color:#f4e7ca}
@@ -755,6 +844,11 @@ body[data-perms~="*"] .dev-only,body[data-perms~="*"] .perm{display:flex}
    especificidade, e o `padding` abreviado de cima zera o topo.
    Antes daqui, esta linha nao fazia efeito nenhum. */
 .aviso__foot{padding-top:18px}
+/* pergunta: mesmo corpo do aviso, mas em papel — nao ha cor do
+   Minecraft aqui, e fundo escuro so pra confirmar seria pesado */
+.ask__corpo{padding:20px 22px;font-size:13px;line-height:1.7;
+  white-space:pre-wrap;word-break:break-word;min-height:40px}
+.ask__foot{padding-top:6px;justify-content:flex-end}
 
 /* ============================================================
    EDITOR DE TEMA
