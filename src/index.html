@@ -48,7 +48,8 @@
       <!-- data-nav = id da seção; a classe is-active marca o atual -->
       <button class="rail__btn is-active" data-nav="home" title="Início"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1v-8.8Z"/></svg></button>
       <button class="rail__btn" data-nav="news" title="Novidades"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14H5a1 1 0 0 1-1-1V5Z"></path><path d="M17 9h3v9a1 1 0 0 1-1 1h-2"></path><path d="M7 8h7M7 12h7M7 16h4"></path></svg></button>
-      <button class="rail__btn" data-nav="cosmetics" title="Cosméticos"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3"/></svg></button>
+      <button class="rail__btn" data-nav="cosmetics" title="Cosméticos"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16"/><path d="M4 9l1.3-4h13.4L20 9"/><path d="M5.5 9v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9"/><path d="M10 20v-5h4v5"/></svg></button>
+      <button class="rail__btn perm perm--musica" id="openMusic" title="Música"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="17" cy="16" r="3"></circle></svg></button>
       <button class="rail__btn rail__btn--dev dev-only" data-nav="dev" title="Dev"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"></path></svg></button>
       <button class="rail__btn" id="openEditor" title="Editor de tema" hidden><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5l4 4L8 20H4v-4L16.5 3.5Z"></path><path d="M14 6l4 4"></path></svg></button>
       <div class="rail__spacer"></div>
@@ -661,6 +662,58 @@
   </div>
 </aside>
 
+
+<!-- ============================================================
+     TOCADOR
+
+     Flutua por cima da tela em vez de ser uma pagina: musica toca
+     enquanto a pessoa navega, e uma pagina propria obrigaria a
+     ficar parada nela.
+
+     O quadrado da capa e o player OFICIAL do YouTube, e nao uma
+     imagem. Nao e escolha de estilo: o termo de uso deles exige que
+     o player fique visivel, entao usa-lo COMO capa e o unico jeito
+     de o desenho fechar sem quebrar a regra.
+     ============================================================ -->
+<div class="mus" id="mus" hidden>
+  <div class="mus__head">
+    <div class="search search--mus">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7a6448" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="musBusca" placeholder="buscar música..." spellcheck="false">
+    </div>
+    <button class="x" id="musFechar" title="Fechar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+
+  <div class="mus__palco">
+    <div class="mus__player" id="musPlayer"></div>
+    <div class="mus__vazio" id="musVazio">nada tocando</div>
+  </div>
+
+  <div class="mus__nome" id="musNome">—</div>
+  <div class="mus__canal" id="musCanal"></div>
+
+  <div class="mus__ctrl">
+    <button class="mus__b" id="musAnt" title="Anterior"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5v14l-11-7 11-7Z"></path><path d="M5 5v14"></path></svg></button>
+    <button class="mus__b mus__b--play" id="musPlay" title="Tocar"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7L8 5Z"></path></svg></button>
+    <button class="mus__b" id="musProx" title="Próxima"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5v14l11-7L5 5Z"></path><path d="M19 5v14"></path></svg></button>
+  </div>
+
+  <div class="mus__barra" id="musBarra"><div class="mus__fill" id="musFill"></div></div>
+  <div class="mus__tempo"><span id="musAgora">0:00</span><span id="musTotal">0:00</span></div>
+
+  <div class="mus__pe">
+    <div class="mus__volcx">
+      <button class="mus__som" id="musSom" title="Volume"></button>
+      <div class="mus__volpop" id="musVolPop" hidden>
+        <div class="mus__barra mus__barra--vol" id="musVolBarra"><div class="mus__fill mus__fill--vol" id="musVolFill"></div></div>
+      </div>
+    </div>
+    <button class="mus__som" id="musSorte" title="Música aleatória"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16"></rect><circle cx="9" cy="9" r="1.3" fill="currentColor" stroke="none"></circle><circle cx="15" cy="15" r="1.3" fill="currentColor" stroke="none"></circle><circle cx="15" cy="9" r="1.3" fill="currentColor" stroke="none"></circle></svg></button>
+    <button class="mus__som" id="musParar" title="Parar de vez"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12"></rect></svg></button>
+  </div>
+
+  <div class="mus__lista" id="musLista" hidden></div>
+</div>
 
 <script type="module" src="renderer.js"></script>
 </body>

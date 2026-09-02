@@ -54,6 +54,11 @@ contextBridge.exposeInMainWorld('api', {
     listarLoja: () => ipcRenderer.invoke('xyven:listarLoja'),
     loja: (token: string, corpo: Record<string, unknown>) =>
       ipcRenderer.invoke('xyven:loja', token, corpo),
+    buscarMusica: (token: string, termo: string) =>
+      ipcRenderer.invoke('xyven:buscarMusica', token, termo),
+    musicaRuim: (token: string, id: string, codigo: number) =>
+      ipcRenderer.invoke('xyven:musicaRuim', token, id, codigo),
+    urlTocador: () => ipcRenderer.invoke('musica:url'),
     listarCargos: () => ipcRenderer.invoke('xyven:listarCargos'),
     cargo: (token: string, corpo: Record<string, unknown>) =>
       ipcRenderer.invoke('xyven:cargo', token, corpo),

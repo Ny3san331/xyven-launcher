@@ -3773,7 +3773,9 @@ const PERMISSOES = [
   ['cargos',         'criar, editar e apagar cargo'],
   ['posts.escrever', 'escrever e editar no mural'],
   ['posts.fixar',    'fixar e destacar postagem'],
-  ['posts.apagar',   'apagar postagem']
+  ['posts.apagar',   'apagar postagem'],
+  ['loja',           'criar item e categoria na loja'],
+  ['musica',         'abrir o tocador e pesquisar musica']
 ];
 const CORES_VALIDAS = ['teal', 'salmon', 'mustard', 'sand', 'ink', 'red', 'muted', 'paper'];
 
@@ -4551,3 +4553,505 @@ if (temApi() && window.api.xyven && window.api.xyven.aoMudar) {
    before initialization" e nada dizia de onde vinha. */
 carregarCargos();
 carregarLoja();
+
+/* ============================================================
+   TOCADOR
+
+   Quem toca e o player oficial do YouTube. O launcher so manda nele:
+   play, pause, pular, e le o tempo pra desenhar a barra. Nao ha audio
+   passando por aqui — e por isso que isto e permitido.
+
+   O player NAO vive nesta pagina. Ele mora num iframe servido por
+   http://127.0.0.1 (electron/tocador.ts), porque numa pagina file://
+   o embed responde "Este vídeo não está disponível — código 152". A
+   janela continua em file:// pra nao trocar a origem do localStorage,
+   que levaria contas, servidores e tema junto.
+
+   Como as origens sao diferentes, a conversa e por postMessage.
+
+   Fica no fim do arquivo de proposito: usa tokenAtual, temApi e esc,
+   todos declarados acima. Chamada antes da declaracao ja quebrou
+   este arquivo duas vezes, e como e tudo async o erro sumia calado.
+   ============================================================ */
+
+/* Os numeros do YT.PlayerState. Escritos a mao porque a biblioteca do
+   YouTube nao existe nesta pagina — ela esta do outro lado do iframe. */
+const MUS_TOCANDO = 1;
+const MUS_ACABOU = 0;
+
+let musQuadro = null;      /* o <iframe> do tocador */
+let musPronto = false;
+let musEstado = -1;
+let musFila = [];          /* o resultado da ultima busca */
+let musIndice = -1;
+let musAbrindo = null;     /* promessa unica: dois cliques nao criam dois iframes */
+let musTotal = 0;          /* duracao da faixa, dita pelo iframe a cada 500ms */
+/* Ja denunciadas nesta sessao. Uma sequencia de faixas bloqueadas
+   virava uma denuncia por pulo, e cada uma faz o servidor perguntar
+   pra Mojang de quem e o token — foi assim que apareceu o 429. */
+const musDenunciadas = new Set();
+let musArrastando = false; /* enquanto arrasta, o tempo do iframe e ignorado */
+let musVolume = 70;
+let musMudo = false;
+
+const musMin = (seg) => {
+  const s = Math.max(0, Math.floor(seg || 0));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+};
+
+function musMandar(tipo, dados) {
+  if (!musQuadro || !musQuadro.contentWindow) return;
+  musQuadro.contentWindow.postMessage(Object.assign({ de: 'launcher', tipo }, dados || {}), '*');
+}
+
+/* Cria o iframe na primeira vez que alguem manda tocar. Nao no boot:
+   quem nao usa o tocador nao carrega o player do YouTube. */
+function abrirQuadro() {
+  if (musPronto) return Promise.resolve();
+  if (musAbrindo) return musAbrindo;
+
+  musAbrindo = (async () => {
+    if (!temApi() || !window.api.xyven || !window.api.xyven.urlTocador) {
+      throw new Error('o tocador não está disponível aqui.');
+    }
+    const url = await window.api.xyven.urlTocador();
+    musQuadro = document.createElement('iframe');
+    musQuadro.setAttribute('allow', 'autoplay; encrypted-media');
+    musQuadro.src = url;
+    $('#musPlayer').appendChild(musQuadro);
+
+    /* Espera o 'pronto' do outro lado. Sem isto o primeiro
+       loadVideoById se perderia no vazio. */
+    await new Promise((resolve) => {
+      const espera = (e) => {
+        if (!e.data || e.data.de !== 'tocador' || e.data.tipo !== 'pronto') return;
+        window.removeEventListener('message', espera);
+        musPronto = true;
+        /* o player nasce em 100: aplica o que estava guardado antes
+           que a primeira faixa comece, ou ela entra no volume errado */
+        musMandar('volume', { valor: musMudo ? 0 : musVolume });
+        resolve();
+      };
+      window.addEventListener('message', espera);
+    });
+  })();
+
+  return musAbrindo;
+}
+
+window.addEventListener('message', (e) => {
+  const m = e.data;
+  if (!m || m.de !== 'tocador') return;
+
+  if (m.tipo === 'tempo') {
+    musTotal = m.total || 0;
+    /* Enquanto o dedo esta na barra, quem manda e o dedo. Sem isto a
+       barra voltava pro tempo real a cada 500ms e a bolinha brigava
+       com o arraste. */
+    if (musArrastando) return;
+    $('#musAgora').textContent = musMin(m.agora);
+    $('#musTotal').textContent = musMin(m.total);
+    $('#musFill').style.width = (m.total ? (m.agora / m.total) * 100 : 0) + '%';
+  }
+
+  if (m.tipo === 'estado') {
+    musEstado = m.estado;
+    musBotaoPlay(m.estado === MUS_TOCANDO);
+    /* acabou: emenda a proxima, como qualquer tocador */
+    if (m.estado === MUS_ACABOU) musTocar(musIndice + 1);
+  }
+
+  if (m.tipo === 'erro') {
+    /* Video bloqueado, removido, ou que o dono so deixa assistir no
+       YouTube — o "Assistir no YouTube" no lugar do play.
+
+       Sai da fila em vez de so pular: senao o "proxima" volta pra ele
+       depois de dar a volta, e a pessoa fica presa num carrossel de
+       videos que nao tocam. */
+    const ruim = musIndice;
+    const faixaRuim = musFila[ruim];
+    $('#musNome').textContent = 'essa não deu — pulando';
+
+    /* Conta pro servidor pra ninguem mais receber esta faixa numa
+       busca. Sem await e sem tratar o erro: se a denuncia falhar, o
+       pior que acontece e alguem tropecar nela de novo — nao vale
+       segurar a proxima musica por causa disso. */
+    const vale = faixaRuim && !musDenunciadas.has(faixaRuim.id) &&
+      /* so o que o servidor aceita: 100 nao existe, 101 e 150 o dono
+         proibiu. Mandar os outros era ida a rede pra receber um
+         "ignorado" de volta. */
+      [100, 101, 150].includes(m.codigo);
+
+    if (vale && temApi() && window.api.xyven && window.api.xyven.musicaRuim) {
+      musDenunciadas.add(faixaRuim.id);
+      tokenAtual().then((t) => window.api.xyven.musicaRuim(t || '', faixaRuim.id, m.codigo))
+        .catch(() => { /* denuncia e melhor-esforco */ });
+    }
+    setTimeout(() => {
+      if (ruim >= 0 && ruim < musFila.length) musFila.splice(ruim, 1);
+      musBotoes();
+      if (!musFila.length) {
+        $('#musNome').textContent = 'nenhuma dessas toca fora do YouTube';
+        $('#musCanal').textContent = '';
+        return;
+      }
+      /* o splice ja empurrou a seguinte pra este indice */
+      musTocar(ruim);
+    }, 1200);
+  }
+});
+
+function musBotaoPlay(tocando) {
+  const b = $('#musPlay');
+  b.title = tocando ? 'Pausar' : 'Tocar';
+  b.innerHTML = tocando
+    ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>'
+    : '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7L8 5Z"></path></svg>';
+}
+
+async function musTocar(i) {
+  if (!musFila.length) return;
+  /* da a volta nas duas pontas: "anterior" na primeira faixa vai pra
+     ultima, em vez de nao fazer nada */
+  const n = ((i % musFila.length) + musFila.length) % musFila.length;
+  musIndice = n;
+  const f = musFila[n];
+
+  $('#musNome').textContent = f.titulo;
+  $('#musCanal').textContent = f.canal;
+
+  try { await abrirQuadro(); }
+  catch (err) { $('#musNome').textContent = err.message; return; }
+
+  $('#musVazio').hidden = true;
+  musMandar('carregar', { id: f.id });
+  /* O parar so liga quando existe player, e o player acabou de nascer
+     aqui dentro. Sem esta linha ele continuava apagado depois de
+     tocar pelo dado ou pela lista — e o botao "as vezes nao
+     funcionava" era isso: estava desabilitado. */
+  musBotoes();
+}
+
+function musBotoes() {
+  const tem = musFila.length > 0;
+  $('#musAnt').disabled = !tem;
+  $('#musProx').disabled = !tem;
+  $('#musPlay').disabled = !tem;
+  /* so faz sentido parar o que existe */
+  $('#musParar').disabled = !musQuadro;
+}
+
+/* ------------------------------------------------------------
+   Parar de vez
+
+   Pausar deixa o player de pe: o processo do iframe continua vivo,
+   com os ~130 MB dele, e o YouTube segue com uma aba aberta atras.
+   Aqui o iframe e ARRANCADO do DOM — o Chromium derruba o processo
+   junto, e a memoria volta.
+
+   A fila fica. Apertar play depois recria o player e volta na mesma
+   faixa, do comeco: quem parou nao quer continuar de onde estava,
+   quer que sumisse.
+   ------------------------------------------------------------ */
+function musParar() {
+  if (musQuadro) musQuadro.remove();
+  musQuadro = null;
+  musPronto = false;
+  musAbrindo = null;
+  musEstado = -1;
+  musTotal = 0;
+
+  $('#musVazio').hidden = false;
+  $('#musNome').textContent = '—';
+  $('#musCanal').textContent = '';
+  $('#musAgora').textContent = '0:00';
+  $('#musTotal').textContent = '0:00';
+  $('#musFill').style.width = '0%';
+  musBotaoPlay(false);
+  musBotoes();
+}
+
+/* O `min(300px,38vh)` do CSS nao chegava: o que limita a lista e o
+   espaco ACIMA do cartao, e o cartao cresceu quando o player teve que
+   ir pros 200px do minimo do YouTube. Aqui a conta e feita com a
+   posicao real, entao vale em qualquer zoom e qualquer altura. */
+function musCaberLista(lista) {
+  const topo = $('#mus').getBoundingClientRect().top;
+  lista.style.maxHeight = Math.max(120, topo - 16) + 'px';
+}
+
+async function musBuscar(termo) {
+  const lista = $('#musLista');
+  lista.hidden = false;
+  musCaberLista(lista);
+  lista.innerHTML = '<div class="mus__aviso">procurando...</div>';
+
+  if (!temApi() || !window.api.xyven || !window.api.xyven.buscarMusica) {
+    lista.innerHTML = '<div class="mus__aviso">a busca não está disponível aqui.</div>';
+    return;
+  }
+  const token = await tokenAtual();
+  const r = await window.api.xyven.buscarMusica(token || '', termo);
+
+  if (!r || !r.ok) {
+    lista.innerHTML = '<div class="mus__aviso">' + esc((r && r.erro) || 'não consegui buscar.') + '</div>';
+    return;
+  }
+  const faixas = r.dados.faixas || [];
+  if (!faixas.length) {
+    lista.innerHTML = '<div class="mus__aviso">nada encontrado.</div>';
+    return;
+  }
+  musFila = faixas;
+  musIndice = -1;
+  musBotoes();
+  lista.innerHTML = faixas.map((f, i) =>
+    '<div class="mus__item" data-i="' + i + '">' +
+    (f.capa ? '<img src="' + esc(f.capa) + '" alt="">' : '') +
+    '<span>' + esc(f.titulo) + '</span></div>'
+  ).join('');
+}
+
+/* ------------------------------------------------------------
+   ligacoes
+   ------------------------------------------------------------ */
+$('#openMusic').addEventListener('click', () => {
+  const cx = $('#mus');
+  cx.hidden = !cx.hidden;
+  if (!cx.hidden) $('#musBusca').focus();
+});
+
+/* Fechar so esconde: parar o player descartaria a fila e a posicao,
+   e o ponto do cartao flutuante e a musica continuar. */
+$('#musFechar').addEventListener('click', () => { $('#mus').hidden = true; });
+
+$('#musBusca').addEventListener('keydown', (e) => {
+  /* Esc fecha a lista; com a lista ja fechada, fecha o cartao. Duas
+     coisas na mesma tecla porque e o reflexo de quem digitou e se
+     arrependeu — e a lista tapa metade da tela. */
+  if (e.key === 'Escape') {
+    const lista = $('#musLista');
+    if (!lista.hidden) { lista.hidden = true; return; }
+    $('#mus').hidden = true;
+    e.target.blur();
+    return;
+  }
+  if (e.key !== 'Enter') return;
+  const t = e.target.value.trim();
+  if (t.length >= 2) musBuscar(t);
+});
+
+/* Clicar fora tambem fecha a lista: sem isto ela so sumia ao escolher
+   uma faixa, e ficava tapando o launcher inteiro. */
+document.addEventListener('pointerdown', (e) => {
+  if ($('#musLista').hidden) return;
+  if (e.target.closest('#musLista') || e.target.closest('#musBusca')) return;
+  $('#musLista').hidden = true;
+});
+
+$('#musLista').addEventListener('click', (e) => {
+  const it = e.target.closest('[data-i]'); if (!it) return;
+  $('#musLista').hidden = true;
+  musTocar(Number(it.dataset.i));
+});
+
+$('#musPlay').addEventListener('click', () => {
+  if (!musFila.length) return;
+  /* primeiro clique sem nada carregado: comeca pela primeira da lista */
+  if (musIndice < 0) return musTocar(0);
+  /* parado de vez: nao ha pra quem mandar 'tocar', o player nem existe */
+  if (!musQuadro) return musTocar(musIndice);
+  musMandar(musEstado === MUS_TOCANDO ? 'pausar' : 'tocar');
+});
+
+/* ------------------------------------------------------------
+   Dado
+
+   Lista fixa de termos em vez de sortear palavra: cada busca nova
+   custa 100 dos 10.000 pontos diarios da API, entao um dado que
+   inventasse termo torraria a cota do dia em algumas dezenas de
+   cliques. Com esta lista, o segundo clique no mesmo termo ja vem do
+   cache e nao custa nada.
+
+   Os termos saem do que voce escuta. Trocar aqui muda o que o dado
+   sorteia.
+   ------------------------------------------------------------ */
+const MUS_SEMENTES = [
+  'indie rock', 'bedroom pop', 'jazz', 'lofi jazz', 'dream pop',
+  'shoegaze', 'soul', 'bossa nova', 'city pop', 'slacker rock',
+  'indie brasileiro', 'psychedelic rock', 'jazz fusion', 'surf rock',
+  'mpb', 'post punk', 'neo soul', 'blues rock'
+];
+
+const sorteio = (n) => Math.floor(Math.random() * n);
+
+/* Com 18 termos e sorteio puro, cair duas ou tres vezes no mesmo em
+   poucos cliques e comum — e de fora parece que o dado esta quebrado.
+   Guardar os ultimos e barra-los faz o rodizio parecer aleatorio, que
+   e o que se espera de um dado aqui. */
+const MUS_ULTIMOS = [];
+const LEMBRAR = 6;
+
+function sortearTermo() {
+  const livres = MUS_SEMENTES.filter((t) => !MUS_ULTIMOS.includes(t));
+  const lista = livres.length ? livres : MUS_SEMENTES;
+  const t = lista[sorteio(lista.length)];
+  MUS_ULTIMOS.push(t);
+  if (MUS_ULTIMOS.length > LEMBRAR) MUS_ULTIMOS.shift();
+  return t;
+}
+
+async function musSorte() {
+  const dado = $('#musSorte');
+  dado.disabled = true;
+  $('#musNome').textContent = 'sorteando...';
+  $('#musCanal').textContent = '';
+
+  const termo = sortearTermo();
+
+  if (!temApi() || !window.api.xyven || !window.api.xyven.buscarMusica) {
+    $('#musNome').textContent = 'a busca não está disponível aqui.';
+    dado.disabled = false;
+    return;
+  }
+  const token = await tokenAtual();
+  const r = await window.api.xyven.buscarMusica(token || '', termo);
+  dado.disabled = false;
+
+  if (!r || !r.ok) {
+    $('#musNome').textContent = (r && r.erro) || 'não consegui sortear.';
+    return;
+  }
+  const faixas = r.dados.faixas || [];
+  if (!faixas.length) { $('#musNome').textContent = 'o dado caiu no vazio.'; return; }
+
+  /* A fila vira o resultado inteiro: depois do sorteio o "proxima"
+     continua andando pelo genero que saiu, em vez de morrer numa
+     faixa so. */
+  musFila = faixas;
+  musBotoes();
+  $('#musBusca').value = termo;
+  musTocar(sorteio(faixas.length));
+}
+
+$('#musSorte').addEventListener('click', musSorte);
+
+$('#musParar').addEventListener('click', musParar);
+
+$('#musAnt').addEventListener('click', () => musTocar(musIndice - 1));
+$('#musProx').addEventListener('click', () => musTocar(musIndice + 1));
+
+/* ------------------------------------------------------------
+   Qualidade conforme a janela
+
+   Com o Minecraft na frente, o video continua sendo decodificado
+   atras — e isso e quadro por segundo que sai do jogo. Sem foco cai
+   pra 144p, que ninguem esta olhando mesmo; ao voltar sobe pros 240p
+   do tamanho do quadro.
+
+   O audio nao muda: a trilha e a mesma nas duas.
+   ------------------------------------------------------------ */
+window.addEventListener('blur', () => musMandar('qualidade', { valor: 'tiny' }));
+window.addEventListener('focus', () => musMandar('qualidade', { valor: 'small' }));
+
+/* ------------------------------------------------------------
+   Arrastar
+
+   Servia so pra clique: apertar e arrastar nao mexia nada, e no
+   soltar a musica "teleportava". setPointerCapture e o que faz o
+   ponteiro continuar sendo desta barra mesmo quando o dedo sai de
+   cima dela — sem ele, arrastar pra fora larga o movimento no meio.
+   ------------------------------------------------------------ */
+function arrastavel(barra, aoMover, aoSoltar, emPe) {
+  const fracao = (e) => {
+    const r = barra.getBoundingClientRect();
+    /* em pe conta de baixo pra cima: no eixo Y a tela cresce pra
+       baixo, e volume que aumenta descendo nao existe em lugar nenhum */
+    const f = emPe
+      ? (r.bottom - e.clientY) / r.height
+      : (e.clientX - r.left) / r.width;
+    return Math.min(1, Math.max(0, f));
+  };
+
+  barra.addEventListener('pointerdown', (e) => {
+    barra.setPointerCapture(e.pointerId);
+    musArrastando = true;
+    aoMover(fracao(e));
+  });
+
+  barra.addEventListener('pointermove', (e) => {
+    if (!musArrastando) return;
+    aoMover(fracao(e));
+  });
+
+  const soltar = (e) => {
+    if (!musArrastando) return;
+    musArrastando = false;
+    aoSoltar(fracao(e));
+  };
+  barra.addEventListener('pointerup', soltar);
+  barra.addEventListener('pointercancel', soltar);
+}
+
+/* Durante o arraste a barra e o relogio andam junto com o dedo, mas o
+   seek so vai no soltar: um seekTo a cada pixel faria o player
+   rebufferizar sem parar. */
+arrastavel($('#musBarra'), (f) => {
+  if (!musTotal) return;
+  $('#musFill').style.width = (f * 100) + '%';
+  $('#musAgora').textContent = musMin(f * musTotal);
+}, (f) => {
+  if (!musTotal) return;
+  musMandar('pular', { segundos: f * musTotal });
+});
+
+/* ------------------------------------------------------------
+   Volume
+
+   Fica no localStorage porque abrir o launcher no volume cheio
+   depois de ter deixado baixo e o tipo de coisa que assusta quem
+   esta de fone.
+   ------------------------------------------------------------ */
+function musDesenharVolume() {
+  const v = musMudo ? 0 : musVolume;
+  $('#musVolFill').style.height = v + '%';
+  $('#musSom').title = 'Volume ' + v + '%';
+  $('#musSom').innerHTML = v === 0
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"></path><path d="M17 9l4 6M21 9l-4 6"></path></svg>'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"></path><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"></path></svg>';
+}
+
+function musAplicarVolume() {
+  musMandar('volume', { valor: musMudo ? 0 : musVolume });
+  musDesenharVolume();
+  try { localStorage.setItem('xyven.volume', JSON.stringify({ v: musVolume, mudo: musMudo })); }
+  catch (e) { /* sem storage */ }
+}
+
+arrastavel($('#musVolBarra'), (f) => {
+  musVolume = Math.round(f * 100);
+  musMudo = false;
+  musAplicarVolume();
+}, () => { /* ja aplicado a cada movimento: volume nao rebufferiza */ }, true);
+
+/* O botao so ABRE a barra. Antes ele mutava no clique, e nao havia
+   como chegar no volume sem antes zera-lo sem querer. */
+$('#musSom').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#musVolPop').hidden = !$('#musVolPop').hidden;
+});
+
+/* clicar em qualquer outro lugar fecha */
+document.addEventListener('pointerdown', (e) => {
+  if ($('#musVolPop').hidden) return;
+  if (e.target.closest('.mus__volcx')) return;
+  $('#musVolPop').hidden = true;
+});
+
+try {
+  const g = JSON.parse(localStorage.getItem('xyven.volume') || 'null');
+  if (g && typeof g.v === 'number') { musVolume = g.v; musMudo = !!g.mudo; }
+} catch (e) { /* json torto */ }
+musDesenharVolume();
+
+musBotoes();

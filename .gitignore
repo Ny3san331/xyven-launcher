@@ -15,7 +15,7 @@ out/
 *.ico
 *.woff2
 !public/icon.ico
-!public/fonts/*.woff2
+!src/fonts/*.woff2
 
 # sobras da extração de fontes (não usadas pelo app)
 alfa.css

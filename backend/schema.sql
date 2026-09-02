@@ -358,3 +358,43 @@ alter table avisos add column if not exists postagem_id bigint
 
 -- indice pro caminho novo: "o ultimo aviso pra este nick OU pra todos"
 create index if not exists avisos_alvo_todos_idx on avisos (id desc) where alvo is null;
+
+-- ============================================================
+-- cache da busca de musica
+-- (rode este bloco no SQL Editor)
+--
+-- A YouTube Data API da 10.000 pontos por dia no projeto INTEIRO e
+-- cobra 100 por busca: sao ~100 pesquisas somando todo mundo. Cada
+-- linha aqui e uma busca que nao foi cobrada.
+--
+-- Sem policy de leitura de proposito: quem le e a Edge Function, que
+-- usa a chave de servico e passa por cima da RLS. Aberto, daria a
+-- qualquer um a lista do que os outros pesquisaram.
+-- ============================================================
+create table if not exists busca_musica (
+  termo      text primary key,
+  resultado  jsonb not null,
+  criado_em  timestamptz not null default now()
+);
+
+alter table busca_musica enable row level security;
+
+-- ============================================================
+-- musicas que o player recusa
+-- (rode este bloco no SQL Editor)
+--
+-- A API do YouTube nao conta quais videos a gravadora proibiu de
+-- tocar fora do site: nem `videoEmbeddable` nem `videoSyndicated`
+-- pegam todos. So da pra saber tentando.
+--
+-- Quem descobre e o launcher: quando o player recusa, o id vem parar
+-- aqui e sai das buscas de todo mundo. A lista se limpa sozinha
+-- conforme as pessoas usam.
+-- ============================================================
+create table if not exists musica_ruim (
+  id         text primary key,
+  codigo     int  not null,
+  criado_em  timestamptz not null default now()
+);
+
+alter table musica_ruim enable row level security;

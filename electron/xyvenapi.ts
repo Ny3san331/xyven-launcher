@@ -130,3 +130,16 @@ export const loja = (token: string, corpo: Record<string, unknown>) =>
 
 export const grupo = (token: string, alvo: string, grupo: string) =>
   chamar<{ nick: string; grupo: string }>('grupo', token, { alvo, grupo });
+
+export type Faixa = { id: string; titulo: string; canal: string; capa: string };
+
+/* Com token e nao publica: a busca custa cota da YouTube Data API, e
+   a funcao so responde a quem tem a permissao `musica`. */
+export const buscarMusica = (token: string, termo: string) =>
+  chamar<{ faixas: Faixa[]; doCache?: boolean; velho?: boolean }>(
+    'musica', token, { acao: 'buscar', termo });
+
+/* "essa nao tocou": o launcher e o unico que descobre, porque so o
+   player sabe. O id sai das buscas seguintes de todo mundo. */
+export const musicaRuim = (token: string, id: string, codigo: number) =>
+  chamar<{ ok: boolean }>('musica', token, { acao: 'ruim', id, codigo });

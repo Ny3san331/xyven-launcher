@@ -21,7 +21,8 @@ export const PERMISSOES: { id: string; oque: string }[] = [
   { id: 'posts.escrever', oque: 'escrever e editar no mural' },
   { id: 'posts.fixar',    oque: 'fixar e destacar postagem' },
   { id: 'posts.apagar',   oque: 'apagar postagem' },
-  { id: 'loja',           oque: 'criar item e categoria na loja' }
+  { id: 'loja',           oque: 'criar item e categoria na loja' },
+  { id: 'musica',         oque: 'abrir o tocador e pesquisar música' }
 ];
 
 export const permValida = (p: string) => PERMISSOES.some((x) => x.id === p);

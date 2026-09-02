@@ -53,6 +53,19 @@ export function criarVisor(canvas) {
      tamanho em CSS px, então isto cobre o zoom do launcher também. */
   let ro = null;
   let nasceuTorto = (w <= 1 || h <= 1);
+  let visivel = true;
+
+  /* Nascido sem tamanho, o loop comeca a pintar num canvas de 1x1 e o
+     WebGL reclama a cada quadro:
+
+       GL_INVALID_VALUE: Texture dimensions must all be greater than zero
+       GL_INVALID_FRAMEBUFFER_OPERATION: Attachment has zero size
+
+     Nao quebrava nada — o visor se acertava no primeiro resize — mas
+     enchia o console e escondia erro de verdade no meio. Fica parado
+     ate ter tamanho pra valer. */
+  const atualizarPausa = () => { visor.renderPaused = !visivel || nasceuTorto; };
+  atualizarPausa();
   if (typeof ResizeObserver !== 'undefined') {
     ro = new ResizeObserver(() => {
       const m = medir(palco);
@@ -60,7 +73,7 @@ export function criarVisor(canvas) {
       visor.setSize(m.w, m.h);
       /* uma vez so: depois do primeiro tamanho real, quem manda no
          enquadramento e o usuario (roda do mouse) */
-      if (nasceuTorto) { nasceuTorto = false; reenquadrar(); }
+      if (nasceuTorto) { nasceuTorto = false; reenquadrar(); atualizarPausa(); }
     });
     ro.observe(palco);
   }
@@ -70,7 +83,8 @@ export function criarVisor(canvas) {
   let io = null;
   if (typeof IntersectionObserver !== 'undefined') {
     io = new IntersectionObserver((e) => {
-      visor.renderPaused = !e.some((x) => x.isIntersecting);
+      visivel = e.some((x) => x.isIntersecting);
+      atualizarPausa();
     });
     io.observe(palco);
   }

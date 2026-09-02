@@ -1,5 +1,13 @@
 /* ============================================================
    FONTES LOCAIS (latin subset)
+
+   Os .woff2 ficam em src/fonts/ e NAO em public/. Em public eles sao
+   copiados crus pra raiz da build, enquanto este arquivo vai parar em
+   assets/ — e o `./fonts/` daqui passava a apontar pra assets/fonts/,
+   que nao existe. O launcher rodou build nenhuma sabe quanto tempo
+   com fonte do sistema, e o unico sinal era um 404 no console.
+
+   Em src/, quem resolve o caminho e o Vite, na hora do build.
    ============================================================ */
 @font-face {
   font-family: 'Alfa Slab One';
@@ -770,6 +778,11 @@ body[data-perms~="posts.escrever"] .perm--escrever{display:flex}
 body[data-perms~="posts.fixar"] .perm--fixar{display:flex}
 body[data-perms~="posts.apagar"] .perm--apagar{display:flex}
 body[data-perms~="loja"] .perm--loja{display:flex}
+body[data-perms~="musica"] .perm--musica{display:flex}
+/* .perm liga em display:flex, mas o botao do rail e grid — sem isto o
+   svg descola do centro. Mais especifico que as duas regras acima. */
+body[data-perms~="musica"] .rail__btn.perm--musica,
+body[data-perms~="*"] .rail__btn.perm{display:grid}
 /* o coringa abre tudo de uma vez */
 body[data-perms~="*"] .dev-only,body[data-perms~="*"] .perm{display:flex}
 .rail__btn--dev{background:var(--teal);color:#f4e7ca}
@@ -869,3 +882,87 @@ body[data-perms~="*"] .dev-only,body[data-perms~="*"] .perm{display:flex}
 .ed__row select{flex:1.2;min-width:0;height:32px;border:var(--bw) solid var(--ink);background:var(--paper);color:var(--ink);font-size:11px;padding:0 4px;outline:none;cursor:pointer}
 .ed__field{display:flex;flex-direction:column;gap:6px;font-size:11px}
 .ed__field input{height:34px;padding:0 10px;border:var(--bw) solid var(--ink);background:var(--paper);color:var(--ink);font-size:11px;outline:none}
+
+/* ============================================================
+   TOCADOR
+
+   Cartao flutuante, canto de baixo a direita. z-index 20: acima do
+   conteudo, abaixo do editor de tema (25) e de qualquer overlay
+   (30+) — a musica nao pode cobrir um modal que espera resposta.
+   ============================================================ */
+.mus{position:fixed;right:22px;bottom:22px;z-index:20;width:268px;
+  border:var(--bw) solid var(--ink);background:var(--paper);
+  box-shadow:6px 6px 0 var(--ink);padding:12px;
+  display:flex;flex-direction:column;gap:8px}
+.mus__head{display:flex;align-items:center;gap:8px}
+.search--mus{flex:1;min-width:0;height:34px}
+.mus__head .x{width:30px;height:30px;flex:none;box-shadow:2px 2px 0 var(--ink)}
+.mus__head .x:hover{background:var(--red);color:var(--paper)}
+
+/* 2px e nao 3px: e moldura interna de imagem, a mesma regra da capa
+   do cosmetico. O 16/9 vem do proprio video — cortar viraria barra
+   preta dos dois lados. */
+/* 200px de altura, e nao 16/9.
+
+   O termo do YouTube exige que o player embutido tenha pelo menos
+   200x200. Em 16/9 com a largura do cartao davam 137px de altura —
+   abaixo do minimo. O video entra deitado dentro desses 200 e sobra
+   tarja preta em cima e embaixo; e o preco de estar dentro da regra. */
+.mus__palco{position:relative;border:2px solid var(--ink);background:var(--ink);
+  height:200px;overflow:hidden}
+.mus__player,.mus__player iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.mus__vazio{position:absolute;inset:0;display:grid;place-items:center;
+  background:var(--sand-dark);color:var(--muted);font-size:11px}
+
+.mus__nome{font-size:12px;font-weight:700;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mus__canal{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.mus__ctrl{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:2px}
+.mus__b{width:38px;height:34px;border:var(--bw) solid var(--ink);background:var(--paper);
+  box-shadow:3px 3px 0 var(--ink);cursor:pointer;display:grid;place-items:center;color:var(--ink)}
+.mus__b:hover{background:var(--mustard)}
+/* afunda: sombra a zero e desloca o mesmo tanto */
+.mus__b:active{box-shadow:0 0 0 var(--ink);transform:translate(3px,3px)}
+.mus__b:disabled{opacity:.4;cursor:default;box-shadow:3px 3px 0 var(--ink);transform:none;background:var(--paper)}
+.mus__b--play{width:46px;background:var(--salmon);color:var(--on-accent,#33261c)}
+
+.mus__barra{height:10px;border:var(--bw) solid var(--ink);background:var(--sand-dark);cursor:pointer;
+  /* sem isto, arrastar a barra sai selecionando o texto do cartao */
+  user-select:none;touch-action:none}
+.mus__fill{height:100%;width:0;background:var(--teal);pointer-events:none}
+
+.mus__pe{display:flex;align-items:center;gap:6px}
+.mus__volcx{position:relative}
+
+/* A barra em pe abre POR CIMA do botao. Deitada no rodape ela roubava
+   a largura do cartao e ficava sempre a mostra, mesmo pra quem nunca
+   mexe no volume. */
+.mus__volpop{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 6px);
+  padding:7px;border:var(--bw) solid var(--ink);background:var(--paper);
+  box-shadow:4px 4px 0 var(--ink);z-index:2}
+.mus__barra--vol{width:10px;height:84px;
+  /* o preenchimento cresce de baixo pra cima, como qualquer volume */
+  display:flex;align-items:flex-end}
+.mus__fill--vol{width:100%;height:0;background:var(--salmon)}
+.mus__som{width:26px;height:22px;flex:none;border:var(--bw) solid var(--ink);background:var(--paper);
+  cursor:pointer;display:grid;place-items:center;color:var(--ink);padding:0}
+.mus__som:hover{background:var(--mustard)}
+.mus__tempo{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+
+/* A lista de resultados sobe por cima do cartao em vez de estica-lo:
+   com 12 faixas o cartao passaria da altura da janela. */
+/* min(): com zoom, ou numa janela baixa, 300px fixos faziam a lista
+   subir alem do topo e os primeiros resultados ficavam fora da tela,
+   sem como rolar ate eles. */
+.mus__lista{position:absolute;left:-1px;right:-1px;bottom:calc(100% + 8px);
+  max-height:min(300px,38vh);overflow-y:auto;
+  border:var(--bw) solid var(--ink);background:var(--paper);box-shadow:6px 6px 0 var(--ink)}
+.mus__item{display:flex;align-items:center;gap:9px;padding:7px 9px;cursor:pointer;
+  border-bottom:1px solid var(--sand-dark);transition:background 120ms}
+.mus__item:last-child{border-bottom:0}
+.mus__item:hover{background:var(--mustard)}
+.mus__item img{width:52px;height:30px;flex:none;object-fit:cover;border:2px solid var(--ink)}
+.mus__item span{font-size:10.5px;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mus__aviso{padding:12px;font-size:10.5px;color:var(--muted);line-height:1.6}

@@ -64,8 +64,13 @@ export const erro = (mensagem: string, status = 400) => json({ erro: mensagem },
    Aceitável, o pior caso é uma consulta a mais. O token NUNCA é
    gravado: serve pra perguntar quem é, e é descartado.
    ------------------------------------------------------------ */
-const cache = new Map<string, { quem: Identidade; ate: number }>();
-const CACHE_MS = 5 * 60 * 1000;
+const cache = new Map<string, { quem: Identidade; ate: number; morre: number }>();
+const CACHE_MS = 15 * 60 * 1000;
+
+/* Ate aqui a resposta velha ainda serve de para-quedas quando a
+   Mojang recusa. Menos que a validade do token (~24h): passado isso,
+   nao da mais pra afirmar que o token continua bom. */
+const SOCORRO_MS = 6 * 60 * 60 * 1000;
 
 async function chaveDe(token: string): Promise<string> {
   /* o token não vira chave direto: se algum log vazar o Map, não
@@ -83,6 +88,15 @@ export async function quemEh(req: Request): Promise<Identidade | Response> {
   const guardado = cache.get(chave);
   if (guardado && guardado.ate > Date.now()) return guardado.quem;
 
+  /* Resposta velha, mas de quem ja provou quem era.
+
+     A Mojang limita quem insiste, e devolve 429. Isso aparecia como
+     "a Mojang respondeu 429" no meio da musica: cada busca refazia a
+     pergunta, e apertar o dado algumas vezes seguidas bastava. O
+     token nao mudou de dono nesse meio tempo — usar o que ja sabemos
+     e mais correto do que recusar. */
+  const socorro = guardado && guardado.morre > Date.now() ? guardado.quem : null;
+
   let r: Response;
   try {
     r = await fetch(MC_PERFIL, { headers: { Authorization: 'Bearer ' + token } });
@@ -90,17 +104,24 @@ export async function quemEh(req: Request): Promise<Identidade | Response> {
     /* rede caiu: 503, NUNCA uma resposta vazia. O launcher precisa
        distinguir "não consegui confirmar" de "você não tem nada" —
        senão uma instabilidade da Mojang some com os cargos de todos. */
+    if (socorro) return socorro;
     return erro('não consegui falar com a Mojang. tente de novo em instantes.', 503);
   }
 
-  if (r.status === 401 || r.status === 403) return erro('token inválido ou expirado.', 401);
-  if (!r.ok) return erro('a Mojang respondeu ' + r.status + '.', 503);
+  /* 401/403 nao tem socorro: a Mojang esta dizendo que o token nao
+     vale mais, e insistir com o cache seria deixar entrar quem ja
+     saiu. */
+  if (r.status === 401 || r.status === 403) { cache.delete(chave); return erro('token inválido ou expirado.', 401); }
+  if (!r.ok) {
+    if (socorro) return socorro;
+    return erro('a Mojang respondeu ' + r.status + '.', 503);
+  }
 
   const perfil = await r.json();
   if (!perfil?.id || !perfil?.name) return erro('a Mojang devolveu um perfil sem id.', 503);
 
   const quem: Identidade = { uuid: String(perfil.id), nick: String(perfil.name) };
-  cache.set(chave, { quem, ate: Date.now() + CACHE_MS });
+  cache.set(chave, { quem, ate: Date.now() + CACHE_MS, morre: Date.now() + SOCORRO_MS });
   return quem;
 }
 

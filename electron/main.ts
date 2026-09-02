@@ -11,6 +11,7 @@ import * as prints from './prints';
 import * as xyvenapi from './xyvenapi';
 import * as realtime from './realtime';
 import * as discord from './discord';
+import { ligarTocador, desligarTocador, URL_TOCADOR } from './tocador';
 
 /* ============================================================
    PASTA DE DADOS — a mesma em desenvolvimento e empacotado.
@@ -354,6 +355,15 @@ function createWindow() {
   ipcMain.handle('xyven:loja', (_e, token: string, corpo: Record<string, unknown>) =>
     xyvenapi.loja(String(token), corpo || {}));
 
+  ipcMain.handle('xyven:buscarMusica', (_e, token: string, termo: string) =>
+    xyvenapi.buscarMusica(String(token), String(termo || '')));
+
+  ipcMain.handle('xyven:musicaRuim', (_e, token: string, id: string, codigo: number) =>
+    xyvenapi.musicaRuim(String(token), String(id || ''), Number(codigo) || 0));
+
+  /* O renderer nao pode montar essa URL sozinho: a porta e do main. */
+  ipcMain.handle('musica:url', () => URL_TOCADOR);
+
   ipcMain.handle('xyven:listarCargos', () => xyvenapi.listarCargos());
   ipcMain.handle('xyven:cargo', (_e, token: string, corpo: Record<string, unknown>) =>
     xyvenapi.cargo(String(token), corpo || {}));
@@ -527,9 +537,9 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => { ligarTocador(); createWindow(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { console.log('[main] before-quit'); discord.desligar(); });
+app.on('before-quit', () => { console.log('[main] before-quit'); discord.desligar(); desligarTocador(); });
 
 process.on('uncaughtException', (e) => console.error('[main] uncaughtException:', e));
 process.on('unhandledRejection', (e) => console.error('[main] unhandledRejection:', e));
