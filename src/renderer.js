@@ -66,13 +66,53 @@ const saveAccounts = () => {
   try { localStorage.setItem('xyven.accounts', JSON.stringify({ lista: CONFIG.accounts, ativa: state.account })); }
   catch (e) { /* sem storage */ }
 };
+/* ------------------------------------------------------------
+   Achar a conta pelo nick
+
+   Duas armadilhas, as duas ja vistas em uso:
+
+   1. MAIUSCULA. Adicionar conta compara sem diferenciar caixa, mas
+      quem procurava comparava com ===. Uma entrada gravada "_XVU" com
+      a conta ativa "_xvu" nao era encontrada — e quem nao e encontrado
+      e tratado como pirata, entao a original entrava offline.
+
+   2. REPETIDA. Instalacao antiga podia ter o mesmo nick duas vezes,
+      uma pirata e uma original, de antes de existir a checagem ao
+      adicionar. O `find` devolvia a PRIMEIRA da lista: se a pirata
+      tivesse sido criada antes, a conta original virava pirata.
+
+   Aqui a busca ignora a caixa e, havendo mais de uma, prefere a que
+   NAO e pirata — perder o offline de quem tem a original nao custa
+   nada; o contrario custa o login.
+   ------------------------------------------------------------ */
+function ehTipoPirata(conta) {
+  return /pirata|offline/i.test((conta && conta.type) || '');
+}
+
+function acharConta(nick) {
+  const alvo = String(nick || '').toLowerCase();
+  const iguais = CONFIG.accounts.filter((a) => String(a.name).toLowerCase() === alvo);
+  return iguais.find((a) => !ehTipoPirata(a)) || iguais[0] || null;
+}
+
 (function restoreAccounts() {
   try {
     const s = JSON.parse(localStorage.getItem('xyven.accounts') || 'null');
     if (!s || !Array.isArray(s.lista) || !s.lista.length) return;
     CONFIG.accounts.length = 0;
-    s.lista.forEach(a => { if (a && a.name) CONFIG.accounts.push(a); });
-    if (s.ativa && CONFIG.accounts.some(a => a.name === s.ativa)) state.account = s.ativa;
+    /* Uma entrada por nick, e a original ganha da pirata. Conserta
+       quem ja tinha as duas gravadas de antes da checagem existir. */
+    const vistos = new Set();
+    s.lista.forEach((a) => {
+      if (!a || !a.name) return;
+      const chave = String(a.name).toLowerCase();
+      if (vistos.has(chave)) return;
+      vistos.add(chave);
+      const melhor = s.lista.filter((x) => x && x.name &&
+        String(x.name).toLowerCase() === chave);
+      CONFIG.accounts.push(melhor.find((x) => !ehTipoPirata(x)) || melhor[0]);
+    });
+    if (s.ativa && acharConta(s.ativa)) state.account = s.ativa;
   } catch (e) { /* sem storage */ }
 })();
 
@@ -652,7 +692,7 @@ $('#addOriginal').onclick = async () => {
   if (!res.ok) { msMostra('o login não foi concluído.', { erro: res.erro }); return; }
 
   const c = res.conta;
-  const jaTem = CONFIG.accounts.find((a) => a.name.toLowerCase() === c.nick.toLowerCase());
+  const jaTem = acharConta(c.nick);
   if (jaTem) { jaTem.name = c.nick; jaTem.type = 'microsoft · premium'; }
   else CONFIG.accounts.push({ name: c.nick, type: 'microsoft · premium' });
 
@@ -2687,7 +2727,7 @@ function renderProfile() {
   /* Estava escrito "microsoft · premium" direto no HTML, do mock de
      design, e ninguem nunca sobrescrevia: conta pirata aparecia como
      premium. O tipo vem da conta ativa. */
-  const contaAtiva = CONFIG.accounts.find((a) => a.name === state.account);
+  const contaAtiva = acharConta(state.account);
   $('#profNick').textContent = (contaAtiva && contaAtiva.type) || '—';
   $('#profSince').textContent = 'na fita desde ' + profile.since;
   const av = $('#profAvatar');
@@ -3075,8 +3115,8 @@ let contaMS = null;           /* conta Microsoft logada nesta sessao */
 let contaEhPremium = false;
 
 const ehPirata = (nick) => {
-  const c = CONFIG.accounts.find((a) => a.name === nick);
-  return !c || /pirata|offline/i.test(c.type || '');
+  const c = acharConta(nick);
+  return !c || ehTipoPirata(c);
 };
 
 /* o tipo de braco vem da conta; so redesenha se mudou */
@@ -4169,7 +4209,7 @@ const COMANDOS = [
 
       if (sub === 'remove') {
         if (!arg[0]) return termErro('uso: /account remove <nick>   (veja em /account list)');
-        const conta = CONFIG.accounts.find((c) => c.name.toLowerCase() === arg[0].toLowerCase());
+        const conta = acharConta(arg[0]);
         if (!conta) return termErro('"' + arg[0] + '" não está logada neste launcher.');
 
         /* as mesmas travas do botão de remover conta */
