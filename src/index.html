@@ -450,6 +450,43 @@
   </div>
 </div>
 
+<div class="overlay" id="logsOverlay" hidden data-close data-wide="prints">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal__head modal__head--mustard">
+      <h3>Logs das sessões</h3>
+      <button class="x" data-close><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+
+    <div class="lg">
+      <div class="search search--lg">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7a6448" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="lgBusca" placeholder="procurar no log..." spellcheck="false">
+        <span class="lg__achou" id="lgAchou"></span>
+      </div>
+
+      <div class="lg__palco">
+        <button class="gal__seta" id="lgAnterior" title="mais recente">‹</button>
+        <pre class="lg__out selectable" id="lgOut"></pre>
+        <button class="gal__seta" id="lgProxima" title="mais antigo">›</button>
+      </div>
+
+      <div class="gal__pe">
+        <span class="gal__quando" id="lgQuando">—</span>
+        <span class="skin__hint" id="lgConta">—</span>
+        <span class="skin__hint" id="lgLinhas"></span>
+      </div>
+    </div>
+
+    <div class="form__foot">
+      <div style="display:flex;gap:10px">
+        <button class="btn" id="lgTudo" hidden>MOSTRAR TUDO</button>
+        <button class="btn btn--teal" id="lgCopiar">COPIAR LOG</button>
+        <button class="btn" data-close>FECHAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="printsOverlay" hidden data-close data-wide="prints">
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modal__head modal__head--mustard">

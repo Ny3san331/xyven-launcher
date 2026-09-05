@@ -291,6 +291,13 @@ function renderToggles() {
   if (state.tab !== 'discord') {
     html += `
     <div class="switch">
+      <span><span class="switch__label">Logs</span><br><span class="switch__desc">o que o jogo escreveu nas últimas sessões</span></span>
+      <span class="switch__acao">
+        <button class="btn" id="btnLogs" style="height:36px;font-size:11px">ABRIR LOGS</button>
+      </span>
+    </div>`;
+    html += `
+    <div class="switch">
       <span><span class="switch__label">Atualização</span><br><span class="switch__desc">ver se saiu versão nova do Xyven</span></span>
       <span class="switch__acao">
         <button class="btn btn--teal" id="btnAtualizar" style="height:36px;font-size:11px">VERIFICAR</button>
@@ -1122,16 +1129,85 @@ async function tocar(servidor) {
   }
   if (!temApi()) { await avisar('a inicialização só funciona no app; no navegador não há acesso ao disco.'); return; }
 
-  const java = javaEmUso();
-  if (!java || !java.path || java.path.startsWith('...')) {
+  let java = javaEmUso();
+
+  /* A lista de Javas e de quando o launcher abriu, e ela envelhece:
+     desinstalar ou mover um Java com o launcher aberto deixa uma
+     entrada apontando pra lugar nenhum. Sem esta conferencia, a
+     checagem de compatibilidade dizia "tem Java 8, serve" e o jogo
+     morria com ENOENT — sem baixar o que faltava. */
+  if (java && java.path && !java.path.startsWith('...') && temApi() && window.api.java.existe) {
+    if (!(await window.api.java.existe(java.path))) {
+      await carregarJava();
+      java = javaEmUso();
+    }
+  }
+
+  /* Nenhum Java na maquina nao e mais beco sem saida: o bloco abaixo
+     baixa. So desiste quando nem isso e possivel (navegador). */
+  if ((!java || !java.path || java.path.startsWith('...')) &&
+      !(temApi() && window.api.java.instalar)) {
     await avisar('escolha um Java em Ajustes › Jogo antes de tocar.');
     return;
   }
+  if (java && java.path && java.path.startsWith('...')) java = null;
+  /* ------------------------------------------------------------
+     O Java certo, sem a pessoa precisar saber disso
+
+     Fita velha nao roda em Java novo (o launchwrapper do Forge ate a
+     1.12 faz um cast pra URLClassLoader que morreu no Java 9) e fita
+     nova nao roda em Java velho. Antes o launcher so avisava e
+     deixava a pessoa se virar.
+
+     Agora: se ja existe um compativel instalado, troca calado — nao
+     ha decisao a tomar, so a certa. Se nao existe, baixa.
+     ------------------------------------------------------------ */
   const exigido = await window.api.java.exigido(state.version);
-  if (java.maior && java.maior < exigido) {
-    const seguir = await perguntar('a fita ' + state.version + ' pede Java ' + exigido + ' e o escolhido é o ' + java.maior +
-                 '.\no jogo provavelmente não abre. tocar mesmo assim?', 'Java diferente');
-    if (!seguir) return;
+  const teto = await window.api.java.maximo(state.version);
+  const serve = (j) => !!(j && j.maior && j.maior >= exigido && (!teto || j.maior <= teto));
+
+  if (!serve(java)) {
+    const outro = (CONFIG.javas || []).find(serve);
+
+    if (outro) {
+      state.java = outro.name; state.javaPath = outro.path;
+      renderJava(); await aplicarLimitesDeMemoria();
+      console.log('[java] a fita ' + state.version + ' pede outro Java: usando ' + outro.name);
+    } else {
+      const faixa = teto ? ('entre ' + exigido + ' e ' + teto) : (exigido + ' ou mais novo');
+      mostrarProgresso(true);
+      $('#progressLabel').textContent = 'PROCURANDO O JAVA';
+
+      /* pintarProgresso e do download do jogo: ele calcula a barra a
+         partir de bytes/arquivos e reescreve o rotulo com a versao.
+         Aqui a conta ja vem pronta. */
+      const solta = window.api.java.aoProgresso((d) => {
+        const n = Math.max(0, Math.min(100, d.pct || 0));
+        $('#progressLabel').textContent = d.fase.toUpperCase();
+        $('#progressFill').style.width = n.toFixed(1) + '%';
+        $('#progressPct').textContent = Math.round(n) + '%';
+      });
+
+      const r = await window.api.java.instalar(exigido, teto);
+      solta && solta();
+
+      if (!r || !r.ok) {
+        mostrarProgresso(false);
+        await avisar('essa fita precisa de Java ' + faixa + ', e eu não consegui baixar:\n' +
+          ((r && r.erro) || 'erro desconhecido') +
+          '\n\ninstale o Java ' + exigido + ' e escolha ele em Ajustes › Jogo.');
+        return;
+      }
+
+      /* redetecta pra ele entrar na lista com versao e bits de
+         verdade, em vez de eu inventar uma entrada na mao */
+      await carregarJava();
+      const novo = (CONFIG.javas || []).find((j) => j.path === r.caminho) ||
+                   (CONFIG.javas || []).find(serve);
+      if (novo) { state.java = novo.name; state.javaPath = novo.path; renderJava(); }
+      await aplicarLimitesDeMemoria();
+      mostrarProgresso(false);
+    }
   }
 
   jogoAbrindo = true;
@@ -1177,7 +1253,10 @@ async function tocar(servidor) {
   const r = await window.api.mc.lancar({
     versao: versaoAlvo,
     memoriaMb: state.mem,
-    javaPath: java.path,
+    /* de novo, e nao o `java` do topo: se a checagem acima trocou ou
+       baixou um Java, aquela referencia ficou velha e o jogo abriria
+       justamente com o Java que a gente acabou de descartar */
+    javaPath: ((javaEmUso() || java) || {}).path,
     gameDir: state.dir || $('#dirInput').value,
     argsJvm: jvmArgs,
     nick: sessao ? sessao.nick : state.account,
@@ -5055,3 +5134,189 @@ try {
 musDesenharVolume();
 
 musBotoes();
+
+
+/* ============================================================
+   LOGS DAS SESSOES
+
+   O jogo ja grava um arquivo por sessao em <perfil>/logs e o
+   minecraft.ts guarda os 10 ultimos. Aqui e so folhear: setas pra
+   andar entre eles, busca pra achar a linha, e copiar pra mandar
+   pra alguem.
+
+   O texto chega do main JA sem o accessToken. Nao ha censura nesta
+   camada de proposito: censurar na tela deixaria o valor vivo dentro
+   do processo da janela, e um print continuaria entregando ele.
+   ============================================================ */
+/* Teto do que vai pra tela de uma vez.
+
+   O travamento nao era ler o arquivo — 50 KB o disco entrega na
+   hora. Era montar 5000 <span> num innerHTML so: o layout do
+   Chromium para tudo enquanto calcula, e a janela inteira engasga.
+
+   As ULTIMAS linhas, e nao as primeiras: quando o jogo fecha
+   sozinho, o motivo esta no fim. Quem precisa do comeco usa a busca,
+   que roda no texto inteiro. */
+const LG_TETO = 1200;
+
+/* Quantas linhas por quadro no "mostrar tudo". O custo total e o
+   mesmo; a diferenca e que ele fica repartido entre varios quadros
+   em vez de travar a janela num so. */
+const LG_LOTE = 600;
+
+let lgTudo = false;        /* a pessoa pediu o log inteiro */
+let lgDesenhando = null;   /* id do rAF em curso, pra poder cancelar */
+
+let lgLista = [];
+let lgOnde = 0;
+let lgTexto = '';
+
+const lgData = (ms) => new Date(ms).toLocaleString('pt-BR');
+
+async function abrirLogs() {
+  open($('#logsOverlay'));
+  $('#lgBusca').value = '';
+  $('#lgOut').textContent = 'carregando...';
+  $('#lgAchou').textContent = '';
+
+  if (!temApi() || !window.api.logs) {
+    $('#lgOut').textContent = 'os logs só existem no app.';
+    return;
+  }
+  const r = await window.api.logs.listar(state.dir);
+  if (!r || !r.ok) { $('#lgOut').textContent = (r && r.erro) || 'não consegui listar.'; return; }
+
+  lgLista = r.logs || [];
+  lgOnde = 0;
+  if (!lgLista.length) {
+    $('#lgOut').textContent = 'nenhuma sessão registrada ainda — jogue uma vez.';
+    $('#lgQuando').textContent = '—';
+    $('#lgConta').textContent = '—';
+    lgSetas();
+    return;
+  }
+  await lgCarregar();
+}
+
+async function lgCarregar() {
+  const reg = lgLista[lgOnde];
+  if (!reg) return;
+  $('#lgOut').textContent = 'carregando...';
+  $('#lgQuando').textContent = lgData(reg.quando);
+  $('#lgConta').textContent = (lgOnde + 1) + ' de ' + lgLista.length +
+    ' · ' + Math.max(1, Math.round(reg.tamanho / 1024)) + ' KB';
+  $('#lgLinhas').textContent = '';
+  /* log novo, teto de novo: abrir uma sessao de 20 mil linhas inteira
+     porque a anterior foi expandida seria a travada de volta */
+  lgTudo = false;
+  lgSetas();
+
+  const r = await window.api.logs.ler(state.dir, reg.arquivo);
+  if (!r || !r.ok) { $('#lgOut').textContent = (r && r.erro) || 'não consegui abrir.'; return; }
+  lgTexto = r.texto || '';
+  lgPintar();
+}
+
+function lgSetas() {
+  /* a lista vem do mais novo pro mais antigo: "anterior" sobe na
+     linha do tempo, "proxima" desce */
+  $('#lgAnterior').disabled = lgOnde <= 0;
+  $('#lgProxima').disabled = lgOnde >= lgLista.length - 1;
+}
+
+/* Filtra por linha e destaca o achado. Filtrar em vez de so rolar ate
+   o primeiro: num log de 5000 linhas, ver as 12 que casam vale mais
+   que pular de uma em uma. */
+function lgPintar() {
+  const termo = $('#lgBusca').value.trim().toLowerCase();
+  const linhas = lgTexto.split(String.fromCharCode(10));
+  const casaram = termo ? linhas.filter((l) => l.toLowerCase().includes(termo)) : linhas;
+
+  $('#lgAchou').textContent = termo
+    ? (casaram.length ? casaram.length + (casaram.length === 1 ? ' linha' : ' linhas') : 'nada')
+    : '';
+
+  const cortou = !lgTudo && casaram.length > LG_TETO;
+  const vistas = cortou ? casaram.slice(-LG_TETO) : casaram;
+
+  $('#lgLinhas').textContent = linhas.length + (linhas.length === 1 ? ' linha' : ' linhas') +
+    (cortou ? ' · mostrando as últimas ' + LG_TETO : '');
+  $('#lgTudo').hidden = !cortou;
+
+  lgDesenhar(vistas);
+}
+
+function lgLinhaHtml(l) {
+  let cls = 'lg__l';
+  if (/\b(ERROR|SEVERE|Exception|Caused by|FATAL)\b/.test(l)) cls += ' lg__l--erro';
+  else if (/\bWARN(ING)?\b/.test(l)) cls += ' lg__l--aviso';
+  else if (l.startsWith('#') || l.startsWith('[xyven]')) cls += ' lg__l--nota';
+  /* nada de pintar o achado: com o filtro ligado TODAS as linhas
+     casam, e o amarelo cobriria justamente a cor do erro */
+  return '<span class="' + cls + '">' + esc(l) + '</span>';
+}
+
+/* Desenha em lotes, um por quadro. Cancelando o anterior: digitar na
+   busca dispara um desenho por tecla, e sem cancelar eles empilham e
+   a tela fica pior do que estava. */
+function lgDesenhar(linhas) {
+  if (lgDesenhando) { cancelAnimationFrame(lgDesenhando); lgDesenhando = null; }
+  const out = $('#lgOut');
+
+  if (!linhas.length) {
+    out.innerHTML = '<span class="lg__l lg__l--nota">nada encontrado.</span>';
+    return;
+  }
+
+  out.innerHTML = '';
+  let i = 0;
+  const passo = () => {
+    const ate = Math.min(i + LG_LOTE, linhas.length);
+    let pedaco = '';
+    for (; i < ate; i++) pedaco += lgLinhaHtml(linhas[i]);
+    out.insertAdjacentHTML('beforeend', pedaco);
+    if (i < linhas.length) lgDesenhando = requestAnimationFrame(passo);
+    else lgDesenhando = null;
+  };
+  passo();
+}
+
+$('#panel-toggles').addEventListener('click', (e) => {
+  if (e.target.closest('#btnLogs')) abrirLogs();
+});
+
+$('#lgTudo').addEventListener('click', () => {
+  lgTudo = true;
+  $('#lgTudo').hidden = true;
+  lgPintar();
+});
+
+$('#lgAnterior').addEventListener('click', () => { if (lgOnde > 0) { lgOnde--; lgCarregar(); } });
+$('#lgProxima').addEventListener('click', () => {
+  if (lgOnde < lgLista.length - 1) { lgOnde++; lgCarregar(); }
+});
+
+$('#lgBusca').addEventListener('input', lgPintar);
+$('#lgBusca').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  /* Esc limpa a busca; com ela ja vazia, fecha */
+  if (e.target.value) { e.target.value = ''; lgPintar(); return; }
+  $('#logsOverlay').hidden = true;
+});
+
+/* Copia o log INTEIRO, e nao o que o filtro mostra: quem copia esta
+   mandando pra alguem diagnosticar, e o filtro dela nao e o mesmo que
+   a outra pessoa vai querer. */
+$('#lgCopiar').addEventListener('click', async () => {
+  const ok = await copiar(lgTexto);
+  $('#lgCopiar').textContent = ok ? 'COPIADO' : 'FALHOU';
+  setTimeout(() => { $('#lgCopiar').textContent = 'COPIAR LOG'; }, 1400);
+});
+
+/* as setas do teclado tambem andam entre as sessoes */
+document.addEventListener('keydown', (e) => {
+  if ($('#logsOverlay').hidden) return;
+  if (document.activeElement === $('#lgBusca')) return;
+  if (e.key === 'ArrowLeft' && lgOnde > 0) { lgOnde--; lgCarregar(); }
+  if (e.key === 'ArrowRight' && lgOnde < lgLista.length - 1) { lgOnde++; lgCarregar(); }
+});

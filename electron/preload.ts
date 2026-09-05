@@ -71,6 +71,10 @@ contextBridge.exposeInMainWorld('api', {
     /* alguem escreveu, fixou ou apagou postagem */
     aoMudarPosts: (fn: () => void) => ipcRenderer.on('xyven:posts-mudou', () => fn()),
   },
+  logs: {
+    listar: (gameDir: string) => ipcRenderer.invoke('logs:listar', gameDir),
+    ler: (gameDir: string, arquivo: string) => ipcRenderer.invoke('logs:ler', gameDir, arquivo)
+  },
   prints: {
     listar: (gameDir: string) => ipcRenderer.invoke('prints:listar', gameDir),
     ler: (gameDir: string, arquivo: string) => ipcRenderer.invoke('prints:ler', gameDir, arquivo),
@@ -87,7 +91,16 @@ contextBridge.exposeInMainWorld('api', {
 
   java: {
     detectar: () => ipcRenderer.invoke('java:detectar'),
+    existe: (caminho: string) => ipcRenderer.invoke('java:existe', caminho),
     exigido: (versao: string) => ipcRenderer.invoke('java:exigido', versao),
+    maximo: (versao: string) => ipcRenderer.invoke('java:maximo', versao),
+    instalar: (exigido: number, teto: number) =>
+      ipcRenderer.invoke('java:instalar', exigido, teto),
+    aoProgresso: (cb: (d: { fase: string; pct: number }) => void) => {
+      const ouvinte = (_e: unknown, d: { fase: string; pct: number }) => cb(d);
+      ipcRenderer.on('java:progresso', ouvinte);
+      return () => ipcRenderer.removeListener('java:progresso', ouvinte);
+    },
     limites: (javaPath?: string) => ipcRenderer.invoke('java:limites', javaPath),
   },
 

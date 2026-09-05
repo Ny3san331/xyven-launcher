@@ -5,13 +5,15 @@
    ============================================================ */
 import { createHash } from 'crypto';
 import { createWriteStream } from 'fs';
-import { mkdir, readFile, writeFile, rename, stat, unlink, readdir, open, appendFile } from 'fs/promises';
+import { mkdir, readFile, writeFile, rename, stat, unlink, readdir, open, appendFile, symlink, copyFile } from 'fs/promises';
 import { join, dirname, delimiter } from 'path';
 import { spawn, execFile, ChildProcess } from 'child_process';
 import { inflateRawSync } from 'zlib';
 import { totalmem } from 'os';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import { censurar } from './logs';
+import { pastaJavas } from './java';
 
 const MANIFESTO = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
 const RECURSOS = 'https://resources.download.minecraft.net';
@@ -50,6 +52,100 @@ export type OpcoesLancar = {
    ------------------------------------------------------------ */
 export function pastaPerfil(raiz: string): string {
   return join(raiz, '.xyven');
+}
+
+/* ------------------------------------------------------------
+   Uma pasta por profile
+
+   Ate aqui todas as versoes dividiam o mesmo --gameDir, e isso
+   quebrava de um jeito silencioso: o options.txt da 1.13 pra frente
+   guarda tecla como "key.mouse.left", e a 1.8.9 espera um numero.
+   Jogar uma depois da outra RESETAVA os controles, com um monte de
+   "Skipping bad option" no log e nada na tela. Mod entao nem se fala:
+   OptiFine de 1.8.9 na pasta da 1.20 trava o jogo.
+
+   Cada versao ganha .xyven/profiles/<versao>. O que e do JOGO fica
+   no profile:
+   mods, config, options.txt. O que e da PESSOA continua num lugar so
+   — prints, mundos, resourcepacks, shaderpacks e as capas do nosso mod
+   — por juncao de diretorio, que no Windows nao pede elevacao.
+
+   O que o launcher guarda pra si (sessao, logs, cosmetics.json)
+   continua na raiz do perfil: nao e do jogo, e nao tem por que
+   multiplicar por versao.
+   ------------------------------------------------------------ */
+const COMPARTILHADAS = ['screenshots', 'saves', 'resourcepacks', 'shaderpacks', 'capes'];
+
+/* ------------------------------------------------------------
+   Do id da versao pro numero do Minecraft
+
+   O id que o jogo usa carrega o carregador de mods junto:
+
+     1.8.9-forge1.8.9-11.15.1.2318-1.8.9
+     1.20.1-forge-47.2.0
+     fabric-loader-0.15.0-1.20.1
+     1.8.9-OptiFine_HD_U_L5
+
+   Pasta com esse nome e ilegivel. O que interessa e o numero.
+
+   Primeiro pedaco quando ele ja e um numero (o caso do Forge e do
+   OptiFine); senao, o ULTIMO que for numero (o caso do Fabric, que
+   comeca pela versao do carregador). Sem numero nenhum — snapshot
+   tipo 23w31a — fica o id inteiro, que e melhor que chutar.
+
+   Efeito: vanilla e Forge da MESMA versao dividem o profile. E o que
+   se quer: os dois leem o mesmo options.txt sem brigar, e o vanilla
+   simplesmente ignora a pasta de mods.
+   ------------------------------------------------------------ */
+const EH_NUMERO = /^\d+\.\d+(\.\d+)?$/;
+
+export function versaoBase(versao: string): string {
+  const partes = String(versao).split('-');
+  if (EH_NUMERO.test(partes[0])) return partes[0];
+  for (let i = partes.length - 1; i >= 0; i--) {
+    if (EH_NUMERO.test(partes[i])) return partes[i];
+  }
+  return String(versao);
+}
+
+export function pastaProfile(raiz: string, versao: string): string {
+  /* o Windows aceita ponto e traco, mas nada garante isso pra um id
+     que caiu no caminho de cima sem virar numero */
+  const seguro = versaoBase(versao).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
+  return join(pastaPerfil(raiz), 'profiles', seguro);
+}
+
+/* Os profiles que ja existem em disco. Serve pra espalhar o contrato do
+   mod de capas: e arquivo, e arquivo nao se resolve por juncao. */
+export async function listarProfiles(raiz: string): Promise<string[]> {
+  const base = join(pastaPerfil(raiz), 'profiles');
+  try {
+    const nomes = await readdir(base, { withFileTypes: true });
+    return nomes.filter((d) => d.isDirectory()).map((d) => join(base, d.name));
+  } catch { return []; }
+}
+
+async function prepararProfile(raiz: string, versao: string): Promise<string> {
+  const perfil = pastaPerfil(raiz);
+  const profile = pastaProfile(raiz, versao);
+  await mkdir(join(profile, 'mods'), { recursive: true });   /* o Forge espera a pasta pronta */
+
+  for (const nome of COMPARTILHADAS) {
+    const alvo = join(perfil, nome);
+    const atalho = join(profile, nome);
+    await mkdir(alvo, { recursive: true }).catch(() => {});
+    /* 'junction' e nao 'dir': link simbolico de diretorio no Windows
+       exige privilegio ou modo desenvolvedor; juncao nao exige nada. */
+    await symlink(alvo, atalho, 'junction').catch(() => { /* ja existe */ });
+  }
+
+  /* O contrato com o mod de capas e um arquivo na raiz do gameDir, e
+     arquivo nao se junta como pasta. Copia se houver. */
+  for (const arq of ['cosmetics.json', 'capes.json']) {
+    await copyFile(join(perfil, arq), join(profile, arq)).catch(() => { /* ainda nao existe */ });
+  }
+
+  return profile;
 }
 
 /* ------------------------------------------------------------
@@ -545,7 +641,12 @@ async function abrirArquivoDeLog(gameDir: string, versao: string, javaPath: stri
   await writeFile(caminho,
     `# Xyven ${versao} — ${d.toLocaleString('pt-BR')}${nl}`
     + `# java: ${javaPath}${nl}`
-    + `# args: ${args.join(' ')}${nl}${nl}`, 'utf8');
+    /* Os args carregam o --accessToken da sessao — a chave que entra
+       na conta. Ficavam em texto puro num arquivo feito pra ser
+       compartilhado quando algo da errado, e ja saiu daqui num pedido
+       de ajuda mais de uma vez. Sao uteis pra diagnostico, entao a
+       linha fica; o valor e que nao. */
+    + `# args: ${censurar(args.join(' '))}${nl}${nl}`, 'utf8');
 
   /* guarda so os 10 mais recentes; mexe unicamente nos nossos arquivos */
   try {
@@ -680,7 +781,10 @@ export async function preparar(
   abortoAtual = new AbortController();
   const sinal = abortoAtual.signal;
   const raiz = o.gameDir;
-  const perfil = pastaPerfil(raiz);
+  /* O --gameDir do jogo e a pasta DO PROFILE, nao a raiz do perfil. As
+     juncoes criadas aqui e que devolvem prints, mundos e packs pro
+     lugar de sempre. */
+  const perfil = await prepararProfile(raiz, o.versao);
 
   aoProgredir({ fase: 'CONFERINDO A FITA', arquivosProntos: 0, arquivosTotal: 0, bytesProntos: 0, bytesTotal: 0 });
   const plano = await montarPlano(o.versao, raiz, sinal);
@@ -810,8 +914,10 @@ export async function lancar(
 
   aoProgredir({ fase: 'ABRINDO O MINECRAFT', arquivosProntos: 1, arquivosTotal: 1, bytesProntos: 1, bytesTotal: 1 });
 
+  /* O log e a sessao sao do LAUNCHER, e ficam na raiz do perfil: um
+     log por profile espalharia o historico em dez pastas, e a tela de
+     logs teria que varrer todas pra montar uma lista so. */
   const perfil = pastaPerfil(o.gameDir);
-  await mkdir(join(perfil, 'mods'), { recursive: true });   /* o Forge espera a pasta pronta */
   const caminhoLog = await abrirArquivoDeLog(perfil, o.versao, o.javaPath, args);
   aoLog('[xyven] log desta sessão: ' + caminhoLog);
 
@@ -852,7 +958,11 @@ export async function lancar(
 
   pararLog?.();
   pararLog = seguirLog(caminhoLog, (linha) => {
-    aoLog(linha);
+    /* Censura ANTES de sair daqui.
+       A linha `# args:` carrega o --accessToken da sessao, e o console
+       tem um botao de copiar. Enquanto isto so era feito na tela de
+       logs, o token continuava saindo pelo console — e saiu. */
+    aoLog(censurar(linha));
     const ajuda = explicar(linha);
     if (ajuda) {
       aoLog(ajuda);
@@ -1079,7 +1189,10 @@ export async function detectarJava(): Promise<{ caminho: string; versao: string;
   const bases = [
     join(pf, 'Java'), join(pf, 'Eclipse Adoptium'), join(pf, 'Microsoft', 'jdk'),
     pf86 ? join(pf86, 'Java') : '', local ? join(local, 'Programs', 'Eclipse Adoptium') : '',
-    appdata ? join(appdata, '.minecraft', 'runtime') : ''
+    appdata ? join(appdata, '.minecraft', 'runtime') : '',
+    /* os que o proprio launcher baixou: sem isto um Java instalado
+       por nos nao apareceria na lista dos Ajustes */
+    pastaJavas()
   ].filter(Boolean);
 
   for (const base of bases) {
@@ -1140,6 +1253,34 @@ export async function limitesDeMemoria(javaPath?: string): Promise<{
   const sobra = Math.floor((totalMb - 2048) / 256) * 256;
   const max = Math.max(min, Math.min(TETO_MEMORIA, sobra));
   return { min, max, totalMb, bits };
+}
+
+/* ------------------------------------------------------------
+   O Java NOVO DEMAIS tambem quebra
+
+   Ate agora so havia checagem de Java velho demais. Mas o launchwrapper,
+   que todo Forge ate a 1.12 usa, faz isto na primeira linha:
+
+     (URLClassLoader) getClass().getClassLoader()
+
+   No Java 9 o carregador do sistema deixou de ser URLClassLoader, e o
+   cast estoura antes de o jogo desenhar qualquer coisa:
+
+     ClassCastException: AppClassLoader cannot be cast to URLClassLoader
+
+   Nao ha o que o launcher possa fazer em volta disso — e o Java
+   errado, ponto. Devolve o TETO da versao pra dar pra avisar.
+   0 = sem teto.
+   ------------------------------------------------------------ */
+export function javaMaximo(versao: string): number {
+  const p = versao.split('.').map(Number);
+  const menor = p[1] || 0;
+  if (!Number.isFinite(menor) || p[0] !== 1) return 0;   /* snapshot: sem palpite */
+  /* ate a 1.12 e terra do launchwrapper e do LWJGL 2 */
+  if (menor <= 12) return 8;
+  /* 1.13 a 1.16 rodam ate o 16; o 17 quebra o Forge dessa faixa */
+  if (menor <= 16) return 16;
+  return 0;
 }
 
 /* qual Java a versão do jogo pede */

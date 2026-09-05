@@ -8,6 +8,8 @@ import * as mc from './minecraft';
 import * as auth from './auth';
 import * as servidores from './servidores';
 import * as prints from './prints';
+import * as logs from './logs';
+import * as java from './java';
 import * as xyvenapi from './xyvenapi';
 import * as realtime from './realtime';
 import * as discord from './discord';
@@ -386,6 +388,14 @@ function createWindow() {
   ipcMain.handle('xyven:grupo', (_e, token: string, alvo: string, grupo: string) =>
     xyvenapi.grupo(String(token), String(alvo), String(grupo)));
 
+  /* logs das sessoes: a leitura ja vem sem o accessToken */
+  ipcMain.handle('logs:listar', async (_e, gameDir: string) => {
+    try { return { ok: true, logs: await logs.listar(mc.pastaPerfil(String(gameDir))) }; }
+    catch (e: any) { return { ok: false, erro: e?.message || String(e) }; }
+  });
+  ipcMain.handle('logs:ler', (_e, gameDir: string, arquivo: string) =>
+    logs.ler(mc.pastaPerfil(String(gameDir)), String(arquivo)));
+
   /* prints do jogo: lista leve, imagem sob demanda */
   ipcMain.handle('prints:listar', async (_e, gameDir: string) => {
     try { return { ok: true, prints: await prints.listar(mc.pastaPerfil(String(gameDir))) }; }
@@ -477,6 +487,15 @@ function createWindow() {
         } : null,
         model: dados.slim ? 'slim' : 'classic'
       }, null, 2));
+
+      /* Cada profile tem seu proprio gameDir, e o mod le estes dois na
+         raiz DELE. Pasta a gente resolve com juncao; arquivo, nao —
+         entao copia. Sao dois arquivos de alguns KB. */
+      for (const profile of await mc.listarProfiles(dados.gameDir)) {
+        for (const arq of ['cosmetics.json', 'capes.json']) {
+          await copyFile(join(destino, arq), join(profile, arq)).catch(() => { /* nao existe */ });
+        }
+      }
       return { ok: true };
     } catch (e: any) {
       return { ok: false, erro: e?.message || String(e) };
@@ -485,7 +504,28 @@ function createWindow() {
 
   ipcMain.handle('mc:conta', (_e, nick: string) => mc.contaMojang(nick));
   ipcMain.handle('java:detectar', () => mc.detectarJava());
+  /* Barato: um stat. Serve pra desconfiar da lista detectada, que
+     envelhece assim que alguem desinstala ou move um Java. */
+  ipcMain.handle('java:existe', async (_e, caminho: string) => {
+    if (!caminho) return false;
+    return stat(caminho).then((x) => x.isFile(), () => false);
+  });
   ipcMain.handle('java:exigido', (_e, versao: string) => mc.javaExigido(versao));
+  ipcMain.handle('java:maximo', (_e, versao: string) => mc.javaMaximo(versao));
+  /* Baixa o Java certo e devolve o caminho. O progresso vai pela
+     janela porque um download de 45 MB sem barra parece travamento. */
+  ipcMain.handle('java:instalar', async (_e, exigido: number, teto: number) => {
+    try {
+      const maior = java.versaoParaBaixar(Number(exigido) || 8, Number(teto) || 0);
+      const caminho = await java.instalar(maior, (fase, pct) => {
+        if (!win.isDestroyed()) win.webContents.send('java:progresso', { fase, pct });
+      });
+      return { ok: true, caminho, maior };
+    } catch (e: any) {
+      return { ok: false, erro: e?.message || String(e) };
+    }
+  });
+
   ipcMain.handle('java:limites', (_e, javaPath?: string) => mc.limitesDeMemoria(javaPath));
 
   /* ---------- Minecraft ---------- */
