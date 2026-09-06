@@ -28,7 +28,7 @@ const CONFIG = {
   versions: [
     { id: '1.8.9',  note: 'PvP clássico · Forge' },
     { id: '1.12.2', note: 'Mods pesados · Forge' },
-    { id: '1.20.1', note: 'Survival novo · Fabric' }
+    { id: '1.21.11', note: 'Survival novo · Fabric' }
   ],
   javas: [
     { name: 'Java 8',  path: '...\\jre1.8.0_401\\bin\\javaw.exe', tag: '1.8.X' },
